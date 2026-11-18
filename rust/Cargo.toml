@@ -1,0 +1,65 @@
+[package]
+name = "searchwin"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "SearchWin"
+path = "src/main.rs"
+
+[dependencies]
+url = { workspace = true }
+serde_json = { workspace = true }
+searchwin-bench = { path = "crates/bench" }
+searchwin-shield = { path = "crates/shield" }
+searchwin-tabs = { path = "crates/tabs" }
+searchwin-history = { path = "crates/history" }
+searchwin-prefs = { path = "crates/prefs" }
+searchwin-curtain = { path = "crates/curtain" }
+searchwin-bookmarks = { path = "crates/bookmarks" }
+searchwin-downloads = { path = "crates/downloads" }
+percent-encoding = "2"
+webview2-com = "0.39"
+windows-core = "0.62"
+
+[dependencies.windows]
+version = "0.62"
+features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Imaging",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+]
+
+# Fast and light: one size-optimized native binary, nothing loaded at launch that isn't used.
+[profile.release]
+# "z": measured 18 Nov 2026 — exe 1207 → 854 KB, same launch (~338 ms) and memory (3.5 MB).
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# One crate per concern, so each can be built and tested on its own.
+[workspace]
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2024"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"

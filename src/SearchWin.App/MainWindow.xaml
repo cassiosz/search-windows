@@ -1,0 +1,54 @@
+<Window
+    x:Class="SearchWin.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+
+    <Grid x:Name="Root">
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Modifiers="Control" Key="L" Invoked="FocusField" />
+            <KeyboardAccelerator Modifiers="Control" Key="R" Invoked="Reload" />
+            <KeyboardAccelerator Key="F5" Invoked="Reload" />
+            <KeyboardAccelerator Modifiers="Menu" Key="Left" Invoked="Back" />
+            <KeyboardAccelerator Modifiers="Menu" Key="Right" Invoked="Forward" />
+        </Grid.KeyboardAccelerators>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="240" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="32" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- The whole top strip moves the window; the system draws its buttons on the right. -->
+        <Border x:Name="TitleBar" Grid.ColumnSpan="2" Background="Transparent" />
+
+        <!-- The column: one field, then (Phase 1) the tabs. Nothing else. -->
+        <StackPanel Grid.Row="1" Padding="10,4,8,10" Spacing="8">
+            <TextBox
+                x:Name="Field"
+                x:Uid="Field"
+                IsSpellCheckEnabled="False"
+                AutomationProperties.Name="Address"
+                KeyDown="FieldKeyDown"
+                GotFocus="FieldGotFocus"
+                LostFocus="FieldLostFocus" />
+        </StackPanel>
+
+        <!-- The page, as a card. -->
+        <Border
+            Grid.Row="1"
+            Grid.Column="1"
+            Margin="0,0,8,8"
+            CornerRadius="8"
+            Background="{ThemeResource LayerFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1">
+            <WebView2 x:Name="Page" Visibility="Collapsed" />
+        </Border>
+    </Grid>
+</Window>

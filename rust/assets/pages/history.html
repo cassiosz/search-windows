@@ -1,0 +1,92 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>History</title>
+<!--common-->
+<style>
+.top{display:flex;gap:8px;align-items:center}
+.top input{flex:1}
+.row{padding:6px 8px 6px 14px}
+.row:hover,.row:focus-within{background:var(--hover)}
+.time{color:var(--faint);font-size:12px;width:44px;flex:none;font-variant-numeric:tabular-nums}
+a{color:inherit;text-decoration:none;display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+a .detail{overflow:hidden;text-overflow:ellipsis}
+.x{border:0;background:none;color:var(--dim);width:28px;height:28px;padding:0;font-size:16px;flex:none;opacity:0}
+.row:hover .x,.x:focus-visible{opacity:1}
+#confirm{margin:12px 0 0;display:flex;gap:8px;align-items:center}
+#confirm span{flex:1}
+</style></head>
+<body><main>
+<h1 id="title"></h1>
+<div class="top"><input type="search" id="find" autofocus autocomplete="off"><button id="clear"></button></div>
+<div id="confirm" hidden><span id="question"></span><button id="yes"></button><button id="no"></button></div>
+<div id="list"></div>
+<p class="empty" id="none" hidden></p>
+</main>
+<script>
+const T = pt ? {
+  title: 'Histórico', find: 'Buscar no histórico', empty: 'Nada aqui ainda', none: 'Nada encontrado',
+  today: 'Hoje', yesterday: 'Ontem', remove: 'Remover', clear: 'Limpar histórico…',
+  question: 'Apagar todo o histórico?', yes: 'Apagar', no: 'Cancelar',
+} : {
+  title: 'History', find: 'Search history', empty: 'Nothing here yet', none: 'No match',
+  today: 'Today', yesterday: 'Yesterday', remove: 'Remove', clear: 'Clear history…',
+  question: 'Clear all of your history?', yes: 'Clear', no: 'Cancel',
+};
+const title = $("title"), find = $("find"), none = $("none"), list = $("list"), clear = $("clear"), confirmation = $("confirm"), question = $("question"), yes = $("yes"), no = $("no");
+document.title = T.title;
+title.textContent = T.title;
+find.placeholder = T.find;
+clear.textContent = T.clear;
+question.textContent = T.question;
+yes.textContent = T.yes;
+no.textContent = T.no;
+
+const day = new Intl.DateTimeFormat(navigator.language, {weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'});
+const time = new Intl.DateTimeFormat(navigator.language, {hour: '2-digit', minute: '2-digit'});
+function dayName(date) {
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  const then = new Date(date); then.setHours(0, 0, 0, 0);
+  const ago = Math.round((start - then) / 86400000);
+  return ago === 0 ? T.today : ago === 1 ? T.yesterday : day.format(date);
+}
+
+// Titles come from the web: always text, never markup.
+function row(entry) {
+  const when = new Date(entry.last);
+  const link = make('a', {className: 'grow', title: entry.url}, [
+    make('div', {textContent: entry.title || entry.address}),
+    make('div', {className: 'detail', textContent: entry.address}),
+  ]);
+  if (/^https?:/i.test(entry.url)) link.href = entry.url;
+  const x = make('button', {className: 'x', textContent: '×', title: T.remove, onclick: () => {
+    ask('history.remove', {url: entry.url}).then(() => { const box = r.parentNode; r.remove(); if (!box.children.length) box.previousSibling.remove(), box.remove(); });
+  }});
+  x.setAttribute('aria-label', T.remove);
+  const r = make('div', {className: 'row'}, [make('span', {className: 'time', textContent: time.format(when)}), link, x]);
+  return r;
+}
+
+function show(reply) {
+  list.replaceChildren();
+  let label = null, box = null;
+  for (const entry of reply.entries || []) {
+    const name = dayName(new Date(entry.last));
+    if (name !== label) {
+      label = name;
+      box = make('div', {className: 'box'});
+      list.append(make('h2', {textContent: name}), box);
+    }
+    box.append(row(entry));
+  }
+  none.textContent = find.value.trim() ? T.none : T.empty;
+  none.hidden = !!list.children.length;
+}
+
+let typing = 0;
+function load() { ask('history.list', {query: find.value}).then(show); }
+find.addEventListener('input', () => { clearTimeout(typing); typing = setTimeout(load, 120); });
+clear.onclick = () => { confirmation.hidden = false; no.focus(); };
+no.onclick = () => { confirmation.hidden = true; clear.focus(); };
+yes.onclick = () => ask('history.clear').then(() => { confirmation.hidden = true; load(); });
+load();
+</script>
+</body></html>

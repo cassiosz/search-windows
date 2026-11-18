@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <RootNamespace>SearchWin</RootNamespace>
+    <AssemblyName>SearchWin</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64;ARM64</Platforms>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <UseWinUI>true</UseWinUI>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- Unpackaged, carrying its own Windows App SDK: one folder, nothing else to install. -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <!-- Without it an unpackaged publish leaves out SearchWin.pri and the compiled XAML. -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+
+    <!-- Fast and light: native code at publish, no JIT at launch, unused code trimmed. -->
+    <PublishAot>true</PublishAot>
+    <PublishTrimmed>true</PublishTrimmed>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <SatelliteResourceLanguages>en;pt-BR</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Only the parts used: not the metapackage, which brings AI/ML runtimes (~60 MB). -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.6.5" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="2.6.5" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2957" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SearchWin.Core\SearchWin.Core.csproj" />
+  </ItemGroup>
+
+  <!-- Trimming without AOT drops types WinUI and WebView2 find by reflection at startup
+       (crash 0xc000027b in Microsoft.UI.Xaml.dll). Keep these whole. -->
+  <ItemGroup>
+    <TrimmerRootAssembly Include="Microsoft.WinUI" />
+    <TrimmerRootAssembly Include="Microsoft.Web.WebView2.Core.Projection" />
+  </ItemGroup>
+
+</Project>

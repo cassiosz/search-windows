@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SearchWin.App/SearchWin.App.csproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="src/SearchWin.Core/SearchWin.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SearchWin.Core.Tests/SearchWin.Core.Tests.csproj" />
+  </Folder>
+</Solution>

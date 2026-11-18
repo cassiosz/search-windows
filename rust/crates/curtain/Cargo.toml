@@ -1,0 +1,10 @@
+[package]
+name = "searchwin-curtain"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+url = { workspace = true }

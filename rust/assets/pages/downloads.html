@@ -1,0 +1,91 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Downloads</title>
+<!--common-->
+<style>
+.top{display:flex;gap:8px;align-items:center;justify-content:space-between}
+.top h1{margin:0}
+#list{margin-top:16px}
+.row{padding:10px 8px 10px 14px}
+.grow>div{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.name{border:0;background:none;padding:0;text-align:left;max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;display:block}
+.name:disabled{cursor:default;color:var(--dim)}
+.name:not(:disabled):hover{text-decoration:underline;background:none}
+progress{display:block;width:100%;height:4px;margin:6px 0 2px;appearance:none;border:0;border-radius:2px;background:var(--border);overflow:hidden}
+progress::-webkit-progress-bar{background:var(--border)}
+progress::-webkit-progress-value{background:var(--accent)}
+.act{flex:none}
+</style></head>
+<body><main>
+<div class="top"><h1 id="title"></h1><button id="clear"></button></div>
+<div id="list"></div>
+<p class="empty" id="none" hidden></p>
+</main>
+<script>
+const T = pt ? {
+  title: 'Downloads', empty: 'Nada baixado ainda', clear: 'Limpar', pause: 'Pausar', resume: 'Continuar', cancel: 'Cancelar',
+  show: 'Mostrar na pasta', paused: 'Pausado', failed: 'Falhou', cancelled: 'Cancelado', of: 'de',
+} : {
+  title: 'Downloads', empty: 'Nothing downloaded yet', clear: 'Clear', pause: 'Pause', resume: 'Resume', cancel: 'Cancel',
+  show: 'Show in folder', paused: 'Paused', failed: 'Failed', cancelled: 'Cancelled', of: 'of',
+};
+const list = $("list"), none = $("none"), clear = $("clear");
+document.title = T.title;
+$("title").textContent = T.title;
+clear.textContent = T.clear;
+none.textContent = T.empty;
+
+function size(bytes) {
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let n = bytes, u = 0;
+  while (n >= 1024 && u < units.length - 1) { n /= 1024; u++; }
+  return (u ? n.toFixed(1) : n) + ' ' + units[u];
+}
+
+function detail(e) {
+  if (e.state === 'done') return [e.from, size(e.total)].filter(Boolean).join(' — ');
+  if (e.state === 'failed') return T.failed + (e.error ? ' — ' + e.error : '');
+  if (e.state === 'cancelled') return T.cancelled;
+  const so_far = e.total ? `${size(e.received)} ${T.of} ${size(e.total)}` : size(e.received);
+  return e.state === 'paused' ? `${T.paused} — ${so_far}` : so_far;
+}
+
+// The page names a row, never a file: the app knows where each one went.
+function button(text, op, e) {
+  return make('button', {className: 'act ' + op, textContent: text, onclick: () => ask('downloads.' + op, {row: e.id}).then(refresh)});
+}
+
+function row(e) {
+  const name = make('button', {className: 'name', textContent: e.name, title: e.url || e.name, disabled: e.state !== 'done',
+    onclick: () => ask('downloads.open', {row: e.id})});
+  const words = make('div', {className: 'grow'}, [name]);
+  if (e.state === 'inprogress' || e.state === 'paused') {
+    const bar = make('progress', {max: 1});
+    if (e.total) bar.value = Math.min(1, e.received / e.total);
+    words.append(bar);
+  }
+  words.append(make('div', {className: 'detail', textContent: detail(e)}));
+  const r = make('div', {className: 'row'}, [words]);
+  r.dataset.row = e.id;
+  r.dataset.state = e.state;
+  if (e.state === 'inprogress') r.append(button(T.pause, 'pause', e), button(T.cancel, 'cancel', e));
+  if (e.state === 'paused') r.append(button(T.resume, 'resume', e), button(T.cancel, 'cancel', e));
+  if (e.state === 'done') r.append(button(T.show, 'show', e));
+  return r;
+}
+
+function show(reply) {
+  const entries = reply.entries || [];
+  const box = make('div', {className: 'box'});
+  for (const e of entries) box.append(row(e));
+  list.replaceChildren(...(entries.length ? [box] : []));
+  none.hidden = !!entries.length;
+  clear.hidden = !entries.some(e => e.state !== 'inprogress' && e.state !== 'paused');
+}
+
+function refresh() { return ask('downloads.list').then(show); }
+// Progress, pushed by the app a few times a second while this page is open.
+window.onAppEvent = e => { if (e.event === 'downloads') show(e); };
+clear.onclick = () => ask('downloads.clear').then(refresh);
+refresh();
+</script>
+</body></html>

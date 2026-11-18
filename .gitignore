@@ -1,0 +1,19 @@
+# C# spike build output (not rust/crates/*/src/bin, which is source)
+src/**/bin/
+src/**/obj/
+tests/**/bin/
+tests/**/obj/
+publish/
+.vs/
+*.user
+
+# Rust build output
+target/
+
+# Upstream clone, kept for reference only
+upstream/
+
+# Orchestrator runtime state; only the team handoffs are kept
+.omc/*
+!.omc/handoffs/
+*/**/.omc/

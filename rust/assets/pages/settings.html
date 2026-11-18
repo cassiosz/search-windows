@@ -1,0 +1,127 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Settings</title>
+<!--common-->
+<style>
+input.switch{appearance:none;width:36px;height:20px;border-radius:10px;background:var(--border);position:relative;margin:0;cursor:pointer;flex:none}
+input.switch::before{content:"";position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:var(--dim);transition:left .12s}
+input.switch:checked{background:var(--accent)}
+input.switch:checked::before{left:19px;background:var(--on)}
+#custom_engine{width:260px}
+.wrong{color:#c42b1c}
+</style></head>
+<body><main>
+<h1 id="title"></h1>
+<input type="search" id="find" autofocus autocomplete="off">
+<div id="groups"></div>
+<p class="empty" id="none" hidden></p>
+</main>
+<script>
+const T = pt ? {
+  title: 'Ajustes', find: 'Procurar um ajuste', none: 'Nenhum ajuste encontrado', custom: 'Personalizado',
+  search: 'Busca', tabs: 'Abas', memory: 'Memória', blocking: 'Bloqueio',
+  engine: ['Buscar com', 'Para onde vão as palavras que não são um endereço', 'motor buscador google duckduckgo bing kagi'],
+  custom_engine: ['Endereço de busca próprio', 'Ponha %s onde vão as palavras', 'personalizado modelo url'],
+  wrong: 'Precisa de um endereço com %s; até lá, busca no Google',
+  layout: ['Abas', 'Na lateral esquerda, em coluna', 'coluna lateral esquerda vertical'],
+  close_goes_back: ['Fechar uma aba volta para a anterior', 'Senão, você cai na aba ao lado', 'fechar anterior recente'],
+  sleep: ['Pôr para dormir as abas sem uso', 'Uma aba em repouso solta a página e volta de onde você parou', 'memória dormir suspender ram'],
+  paces: {later: 'Mais tarde — após duas horas', normal: 'Normal — após meia hora', sooner: 'Mais cedo — após dez minutos'},
+  shield: ['Bloquear anúncios e rastreadores', 'Terceiros que só servem para vigiar, e os anúncios do YouTube', 'shield anúncios bloqueador rastreio youtube adblock'],
+} : {
+  title: 'Settings', find: 'Find a setting', none: 'No setting matches', custom: 'Custom',
+  search: 'Searching', tabs: 'Tabs', memory: 'Memory', blocking: 'Blocking',
+  engine: ['Search with', "Where words that aren't an address go", 'engine google duckduckgo bing kagi'],
+  custom_engine: ['Custom search address', 'Put %s where the words go', 'template url'],
+  wrong: 'Needs an address with %s; until then, Google searches',
+  layout: ['Tabs', 'Down the left side, in a column', 'sidebar vertical column left'],
+  close_goes_back: ['Closing a tab goes back to the one before', 'Otherwise you land on the tab beside it', 'close previous recent'],
+  sleep: ["Sleep tabs you aren't using", 'A resting tab lets its page go and comes back where you left it', 'memory discard suspend ram'],
+  paces: {later: 'Later — after two hours', normal: 'Normal — after half an hour', sooner: 'Sooner — after ten minutes'},
+  shield: ['Block ads and trackers', "Third parties whose only job is to watch, and YouTube's ads", 'adblock ad blocker ads youtube'],
+};
+const title = $("title"), find = $("find"), none = $("none"), groups = $("groups");
+document.title = T.title;
+title.textContent = T.title;
+find.placeholder = T.find;
+none.textContent = T.none;
+
+// Every line of Settings, written once: the page draws them and the find box filters them.
+const GROUPS = [['search', ['engine', 'custom_engine']], ['tabs', ['layout', 'close_goes_back']], ['memory', ['sleep']], ['blocking', ['shield']]];
+const rows = {};
+let prefs = {};
+
+function control(key) {
+  const set = value => ask('settings.set', {key, value}).then(show);
+  // The only place for now: said plainly, nothing to switch.
+  if (key === 'layout') return make('span', {id: key});
+  if (key === 'engine' || key === 'sleep') {
+    const s = make('select', {id: key, onchange: () => set(s.value)});
+    s.setAttribute('aria-label', T[key][0]);
+    return s;
+  }
+  if (key === 'custom_engine') {
+    const i = make('input', {type: 'text', id: key, spellcheck: false, placeholder: 'https://example.com/?q=%s', onchange: () => set(i.value.trim())});
+    i.setAttribute('aria-label', T[key][0]);
+    return i;
+  }
+  const c = make('input', {type: 'checkbox', className: 'switch', id: key, onchange: () => set(c.checked)});
+  c.setAttribute('role', 'switch');
+  c.setAttribute('aria-label', T[key][0]);
+  return c;
+}
+
+for (const [group, keys] of GROUPS) {
+  const box = make('div', {className: 'box'});
+  for (const key of keys) {
+    const [name, detail, words] = T[key];
+    const about = make('div', {className: 'detail'}, [detail]);
+    const row = make('div', {className: 'row'}, [make('label', {className: 'grow', htmlFor: key}, [make('div', {textContent: name}), about]), control(key)]);
+    row.dataset.words = (name + ' ' + detail + ' ' + words).toLowerCase();
+    rows[key] = {row, about, detail};
+    box.append(row);
+  }
+  groups.append(make('section', {id: group}, [make('h2', {textContent: T[group]}), box]));
+}
+
+function filter() {
+  const words = find.value.toLowerCase().split(/\s+/).filter(Boolean);
+  let any = false;
+  for (const section of groups.children) {
+    let shown = false;
+    for (const row of section.querySelectorAll('.row')) {
+      const key = row.querySelector('[id]').id;
+      const applies = key !== 'custom_engine' || prefs.engine === 'custom';
+      row.hidden = !applies || !words.every(w => row.dataset.words.includes(w));
+      shown = shown || !row.hidden;
+    }
+    section.hidden = !shown;
+    any = any || shown;
+  }
+  none.hidden = any;
+}
+
+function show(reply) {
+  if (!reply.prefs) return;
+  prefs = reply.prefs;
+  const engine = document.getElementById('engine');
+  if (!engine.options.length) {
+    for (const e of reply.engines) engine.append(make('option', {value: e.id, textContent: e.id === 'custom' ? T.custom : e.name}));
+    const sleep = document.getElementById('sleep');
+    for (const pace in T.paces) sleep.append(make('option', {value: pace, textContent: T.paces[pace]}));
+  }
+  engine.value = prefs.engine;
+  document.getElementById('sleep').value = prefs.sleep;
+  document.getElementById('custom_engine').value = prefs.custom_engine;
+  document.getElementById('shield').checked = prefs.shield;
+  document.getElementById('close_goes_back').checked = prefs.close_goes_back;
+  const custom = rows.custom_engine;
+  const wrong = prefs.engine === 'custom' && !reply.custom_ok;
+  custom.about.textContent = wrong ? T.wrong : custom.detail;
+  custom.about.classList.toggle('wrong', wrong);
+  filter();
+}
+
+find.addEventListener('input', filter);
+ask('settings.get').then(show);
+</script>
+</body></html>
