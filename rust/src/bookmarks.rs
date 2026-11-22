@@ -20,8 +20,17 @@ thread_local! {
     static EDITING: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
+/// The profile on screen's bookmarks: Personal's are where they always were.
 fn file() -> PathBuf {
-    crate::data_folder().join("bookmarks.json")
+    crate::spaces::folder().join("bookmarks.json")
+}
+
+/// Another profile came on screen: its bookmarks are read the next time
+/// they are wanted. The window's save has written these already.
+pub fn unload() {
+    save();
+    BOOKMARKS.with(|cell| *cell.borrow_mut() = None);
+    EDITING.with(|e| *e.borrow_mut() = None);
 }
 
 fn with<R>(f: impl FnOnce(&mut Bookmarks) -> R) -> R {
@@ -201,11 +210,17 @@ fn import(from: &str) -> Value {
     };
     let Ok(data) = std::fs::read(&path) else { return json!({ "error": "not found" }) };
     let Some(incoming) = searchwin_bookmarks::from_chrome(&data) else { return json!({ "error": "unreadable" }) };
-    let (added, already) = with(|b| b.take(incoming, name));
+    let (added, already) = take(incoming, name);
+    json!({ "added": added, "already": already })
+}
+
+/// Another browser's bookmarks, kept apart under its name (crate::import too).
+pub fn take(incoming: Vec<searchwin_bookmarks::Node>, from: &str) -> (usize, usize) {
+    let (added, already) = with(|b| b.take(incoming, from));
     if added > 0 {
         changed();
     }
-    json!({ "added": added, "already": already })
+    (added, already)
 }
 
 #[cfg(test)]

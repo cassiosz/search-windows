@@ -12,11 +12,18 @@ mod bookmarks;
 mod downloads;
 mod engine;
 mod favicon;
+mod float;
+mod forms;
+mod import;
 mod internal;
 mod omnibox;
 mod drive;
 mod page;
+mod passwords;
+mod peek;
 mod shield;
+mod spaces;
+mod split;
 mod veil;
 
 use std::cell::RefCell;
@@ -137,6 +144,8 @@ struct Palette {
     dim: Rgb,
     /// Asleep tabs, and the new-tab row: there, but quiet.
     faint: Rgb,
+    /// The page with the keys, when two or more are side by side: the pages' own accent.
+    accent: Rgb,
 }
 
 /// `a` moved `percent` of the way to `b`.
@@ -169,6 +178,7 @@ impl Palette {
             // Both stay above 4.5:1 on the column (see the test below).
             dim: mix(text, background, 20),
             faint: mix(text, background, 35),
+            accent: if dark { (76, 194, 255) } else { (0, 103, 192) },
         }
     }
 }
@@ -193,6 +203,8 @@ enum Item {
     Pin(u64),
     Tab(u64),
     NewTab,
+    /// A space's chip at the column's foot, by its place among them.
+    Space(usize),
     /// A row of the drop-down under the field.
     Suggestion(usize),
     // The bar's.
@@ -255,6 +267,21 @@ struct State {
     /// Ctrl+K: the rows under the field are the open tabs, `switch_ids` says which.
     switching: bool,
     switch_ids: Vec<u64>,
+    /// Profiles and spaces (spaces.json); with no file, one space, switched off.
+    spaces: searchwin_spaces::Spaces,
+    /// The rows of the spaces not on screen, read the first time each is wanted.
+    rows: searchwin_spaces::Rows,
+    /// The space `tabs` is the row of. Until the window follows a switch, it
+    /// can differ from the model's current space for a moment.
+    row_of: String,
+    /// What deleted spaces and profiles left, cleared away once the window has moved off them.
+    removals: Vec<searchwin_spaces::Removal>,
+    /// Links sent to the space being switched to, opened when it is on screen.
+    sent: Vec<String>,
+    /// Split View: pages of `tabs` side by side. Empty with the setting off.
+    splits: searchwin_split::Splits,
+    /// A divider being dragged.
+    drag: Option<searchwin_split::Drag>,
 }
 
 thread_local! {
@@ -275,7 +302,8 @@ fn tabs<R>(f: impl FnOnce(&mut Tabs) -> R) -> Option<R> {
 }
 
 fn history(s: &mut State) -> &mut History {
-    s.history.get_or_insert_with(|| History::load(&data_folder().join("history.json")))
+    // The profile on screen's own: Personal's is where it always was.
+    s.history.get_or_insert_with(|| History::load(&spaces::folder().join("history.json")))
 }
 
 fn scale(value: i32, dpi: i32) -> i32 {
@@ -308,8 +336,11 @@ fn main() -> windows_core::Result<()> {
         CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok()?;
         let instance = GetModuleHandleW(None)?;
         let arrow = LoadCursorW(None, IDC_ARROW)?;
+        // Before the page engine starts: a store a deletion left is removed while nothing holds it.
+        let spaces = spaces::load();
         let class = WNDCLASSW {
-            style: CS_HREDRAW | CS_VREDRAW,
+            // Double clicks: a split's divider evens the pages out.
+            style: CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS,
             lpfnWndProc: Some(window_proc),
             hInstance: instance.into(),
             hCursor: arrow,
@@ -385,7 +416,10 @@ fn main() -> windows_core::Result<()> {
         let dark = theme_dark();
         let palette = Palette::new(dark);
         // What was open last time comes back asleep, but for the tab in front.
-        let restored = searchwin_tabs::load(&data_folder().join("session.json")).into_tabs(now_ms());
+        // The space on screen's row: session.json, unless spaces are on and another was left in front.
+        let row_of = spaces.current_id().to_string();
+        let restored = searchwin_tabs::load(&searchwin_spaces::session_path(&data_folder(), &row_of)).into_tabs(now_ms());
+        let splits = if !restored.splits.is_empty() && split::on() { split::from_row(&restored) } else { searchwin_split::Splits::new() };
         STATE.with(|s| {
             *s.borrow_mut() = Some(State {
                 window,
@@ -421,6 +455,13 @@ fn main() -> windows_core::Result<()> {
                 privates_made: 0,
                 switching: false,
                 switch_ids: Vec::new(),
+                spaces,
+                rows: searchwin_spaces::Rows::new(),
+                row_of,
+                removals: Vec::new(),
+                sent: Vec::new(),
+                splits,
+                drag: None,
             })
         });
         apply_font();
@@ -434,9 +475,15 @@ fn main() -> windows_core::Result<()> {
 
         // A link handed over on the command line (as the default browser will) opens at once,
         // in front of what came back; otherwise the window starts where it was left.
-        match std::env::args().nth(1) {
-            Some(first) => open_typed(&first),
-            None => show_selected(),
+        // A link from another app goes to the space a rule names, when that is another one.
+        let routed = std::env::args().nth(1).and_then(|first| resolve(&first)).and_then(|url| Some((spaces::sends_to(url.as_str())?, url)));
+        match (std::env::args().nth(1), routed) {
+            (_, Some((space, url))) => {
+                show_selected();
+                spaces::send(url.as_str(), &space);
+            }
+            (Some(first), None) => open_typed(&first),
+            (None, None) => show_selected(),
         }
         SetTimer(Some(window), SLEEP_TIMER, SLEEP_CHECK_MS, None);
 
@@ -459,6 +506,10 @@ fn portuguese() -> bool {
 
 fn placeholder() -> &'static str {
     if portuguese() { "Pesquise ou digite um endereço" } else { "Search or type an address" }
+}
+
+fn floating_label() -> &'static str {
+    if portuguese() { "Tocando na janela flutuante — Ctrl+Shift+P traz de volta" } else { "Playing in the floating window — Ctrl+Shift+P brings it back" }
 }
 
 fn new_tab_label() -> &'static str {
@@ -660,8 +711,20 @@ fn layout() {
             true,
         );
     }
-    page::set_bounds(card_rect(client, dpi));
+    place_pages();
     place_drop();
+}
+
+/// The page in front in the card, or the pages of its split side by side.
+fn place_pages() {
+    let client = client_rect();
+    let Some((card, panes)) = state(|s| {
+        let card = card_rect(client, s.dpi);
+        (card, if s.splits.is_empty() { Vec::new() } else { split::panes(s, card) })
+    }) else {
+        return;
+    };
+    page::arrange(card, panes);
 }
 
 /// How thick Windows makes the sizing frame at this DPI: what a maximized
@@ -689,6 +752,8 @@ struct Row {
     asleep: bool,
     /// A private tab: its row says so, quietly.
     private: bool,
+    /// A split's row: the next page's site and letter, its mark beside the first's.
+    also: Option<(String, String)>,
 }
 
 /// The column below the field: what is where, as painted and as clicked.
@@ -698,7 +763,13 @@ struct Column {
     list: RECT,
     /// The most the tab rows can scroll.
     most: i32,
+    /// With spaces on, a chip for each space at the column's foot.
+    chips: Vec<(RECT, spaces::Chip)>,
 }
+
+/// A space's chip: a small square, as upstream's space dot.
+const CHIP: i32 = 26;
+const CHIP_GAP: i32 = 4;
 
 fn private_tab_label() -> &'static str {
     if portuguese() { "Aba privada" } else { "Private tab" }
@@ -784,7 +855,26 @@ fn column(s: &State, bottom: i32) -> Column {
     let mut rows = Vec::new();
     let mut list = RECT { left: 0, top, right: scale(COLUMN, dpi), bottom: bottom - scale(SIDE_PAD, dpi) };
 
+    // The spaces, one chip each, in a line at the foot; the tabs end above them.
+    let mut chips = Vec::new();
+    let found = spaces::chips(&s.spaces);
+    if !found.is_empty() {
+        let side = scale(CHIP, dpi);
+        let step = side + scale(CHIP_GAP, dpi);
+        let y = bottom - scale(SIDE_PAD, dpi) - side;
+        for (i, chip) in found.into_iter().enumerate() {
+            let x = left + i as i32 * step;
+            if x + side > right {
+                break;
+            }
+            chips.push((RECT { left: x, top: y, right: x + side, bottom: y + side }, chip));
+        }
+        list.bottom = y - scale(GAP, dpi);
+    }
+
+    // The tab in front, or the split it is a page of: that row stands for it.
     let selected = s.tabs.selected_id();
+    let selected = s.splits.split_of(selected).map_or(selected, |split| split.first());
     // Pins: big tiles that never move, so each stays under your hand.
     let pins = s.tabs.pinned_count();
     let gap = scale(PIN_GAP, dpi);
@@ -804,6 +894,7 @@ fn column(s: &State, bottom: i32) -> Column {
             selected: tab.id == selected,
             asleep: tab.asleep,
             private: s.private.contains_key(&tab.id),
+            also: None,
         });
     }
     if pins > 0 {
@@ -812,20 +903,33 @@ fn column(s: &State, bottom: i32) -> Column {
     list.top = top;
 
     let height = scale(ROW, dpi);
-    let content = (s.tabs.len() - pins + 1) as i32 * height;
+    // A split's later pages have no row of their own (Browser.standsInRow).
+    let standing = |t: &&Tab| s.splits.stands_in_row(t.id);
+    let content = (s.tabs.iter().skip(pins).filter(standing).count() + 1) as i32 * height;
     let most = (content - (list.bottom - list.top)).max(0);
     let mut y = top - s.scroll.clamp(0, most);
-    for tab in s.tabs.iter().skip(pins) {
+    for tab in s.tabs.iter().skip(pins).filter(standing) {
+        let mut label = label(tab, s.private.contains_key(&tab.id));
+        let mut also = None;
+        // A split is one row: both marks, every title.
+        if let Some(split) = s.splits.split_of(tab.id) {
+            let others: Vec<&Tab> = split.tabs.iter().skip(1).filter_map(|t| s.tabs.get(*t)).collect();
+            for other in &others {
+                label = format!("{label}  |  {}", self::label(other, s.private.contains_key(&other.id)));
+            }
+            also = others.first().map(|o| (host_of(o.url.as_deref()), letter(o.url.as_deref())));
+        }
         rows.push(Row {
             item: Item::Tab(tab.id),
             rect: RECT { left, top: y, right, bottom: y + height },
-            label: label(tab, s.private.contains_key(&tab.id)),
+            label,
             detail: String::new(),
             letter: letter(tab.url.as_deref()),
             host: host_of(tab.url.as_deref()),
             selected: tab.id == selected,
             asleep: tab.asleep,
             private: s.private.contains_key(&tab.id),
+            also,
         });
         y += height;
     }
@@ -839,8 +943,9 @@ fn column(s: &State, bottom: i32) -> Column {
         selected: false,
         asleep: false,
         private: false,
+        also: None,
     });
-    Column { rows, list, most }
+    Column { rows, list, most, chips }
 }
 
 /// The drop-down's rows, in its own window's coordinates.
@@ -865,6 +970,7 @@ fn drop_rows(s: &State, width: i32) -> Vec<Row> {
                 selected: s.highlight == Some(i) || (s.highlight.is_none() && s.drop_hover == Some(i)),
                 asleep: false,
                 private: false,
+                also: None,
             }
         })
         .collect()
@@ -911,6 +1017,9 @@ fn hit(x: i32, y: i32) -> Option<(Item, bool)> {
             return Some((item, false));
         }
         let column = column(s, client.bottom);
+        if let Some(i) = column.chips.iter().position(|(r, _)| inside(*r, x, y)) {
+            return Some((Item::Space(i), false));
+        }
         let row = column.rows.iter().find(|r| {
             inside(r.rect, x, y) && (!matches!(r.item, Item::Tab(_) | Item::NewTab) || inside(column.list, x, y))
         })?;
@@ -1019,6 +1128,13 @@ struct Picture {
     title: String,
     editing: bool,
     zoomed: bool,
+    /// The column's ground: the space's colour faintly over it, with spaces on.
+    ground: Rgb,
+    /// The split in front, side by side: its dividers, and the page with the keys.
+    dividers: Vec<RECT>,
+    focused_pane: Option<RECT>,
+    /// The page in front is out in the floating window: the card says so.
+    floated: bool,
 }
 
 /// Draws off screen and copies in at once: hovering never flickers.
@@ -1048,6 +1164,8 @@ unsafe fn buffered(hdc: HDC, area: RECT, draw: impl FnOnce(HDC, RECT)) {
 unsafe fn paint_column(canvas: HDC, area: RECT, p: &Picture) {
     let dpi = p.dpi;
     let palette = p.palette;
+    // The space's wash is the column's ground: everything drawn "on the column" sits on it.
+    let palette = Palette { background: p.ground, ..palette };
     unsafe {
         fill(canvas, area, palette.background);
         // The column's edge: one hairline between it and the page.
@@ -1105,6 +1223,13 @@ unsafe fn paint_column(canvas: HDC, area: RECT, p: &Picture) {
                     }
                     let behind = if row.selected { palette.pill } else if hovered { palette.hover } else { palette.background };
                     site_mark(canvas, row, icon_box, behind, &palette, p.small_font, dpi);
+                    // A split: the next page's mark beside the first's.
+                    if let Some((host, letter)) = &row.also {
+                        let next = RECT { left: icon_box.right + scale(4, dpi), right: icon_box.right + scale(4, dpi) + icon, ..icon_box };
+                        let other = Row { host: host.clone(), letter: letter.clone(), private: false, also: None, label: String::new(), detail: String::new(), ..*row };
+                        site_mark(canvas, &other, next, behind, &palette, p.small_font, dpi);
+                        words.left = next.right + scale(10, dpi);
+                    }
                     if hovered {
                         let close = close_rect(pill);
                         words.right = close.left;
@@ -1124,6 +1249,24 @@ unsafe fn paint_column(canvas: HDC, area: RECT, p: &Picture) {
         }
         if clipped {
             let _ = RestoreDC(canvas, -1);
+        }
+        // The spaces: the one on screen raised, each in its colour if it has one.
+        for (i, (r, chip)) in p.column.chips.iter().enumerate() {
+            let hovered = p.hover == Some(Item::Space(i));
+            let radius = scale(8, dpi);
+            if chip.current {
+                let wash = chip.tint.map_or(palette.pill, |t| mix(palette.pill, t, 14));
+                rounded(canvas, *r, wash, palette.border, radius);
+            } else if hovered {
+                let wash = chip.tint.map_or(palette.hover, |t| mix(palette.background, t, 24));
+                rounded(canvas, *r, wash, wash, radius);
+            }
+            let ink = match chip.tint {
+                Some(t) => mix(t, palette.text, 25),
+                None if chip.current || hovered => palette.text,
+                None => palette.dim,
+            };
+            text(canvas, &chip.letter, *r, p.small_font, ink, true);
         }
     }
 }
@@ -1219,9 +1362,21 @@ fn paint(window: HWND) {
     let (can_back, can_forward) = page::can_go();
     let zoomed = zoomed(window);
     let focus = unsafe { GetFocus() };
+    let floating = float::tab();
     let Some(picture) = state(|s| {
         let (site, title) = crumb(s.tabs.selected());
+        let ground = spaces::wash(&s.spaces, s.dark).map_or(s.palette.background, |(tint, amount)| mix(s.palette.background, tint, amount));
+        let (mut dividers, mut focused_pane) = (Vec::new(), None);
+        if let Some(layout) = split::layout_of(s, card_rect(client, s.dpi)).filter(|l| l.paired) {
+            dividers = layout.dividers.iter().map(|d| split::win(*d)).collect();
+            let front = s.tabs.selected_id();
+            focused_pane = layout.panes.iter().find(|(id, _)| *id == front).map(|(_, r)| split::win(*r));
+        }
         Picture {
+            ground,
+            dividers,
+            focused_pane,
+            floated: floating.is_some() && floating == Some(s.tabs.selected_id()),
             column: column(s, client.bottom),
             palette: s.palette,
             font: s.font,
@@ -1261,7 +1416,29 @@ fn paint(window: HWND) {
         // Under the page, seen only before it has drawn.
         let card = card_rect(client, dpi);
         if overlaps(card) {
-            fill(hdc, card, picture.palette.card);
+            let palette = picture.palette;
+            fill(hdc, card, palette.card);
+            if picture.floated {
+                SetBkMode(hdc, TRANSPARENT);
+                text(hdc, floating_label(), card, picture.crumb_font, palette.faint, true);
+            }
+            // Pages side by side: a hairline in each gap, and the page with the
+            // keys outlined in the accent, in the hair its place is drawn inside.
+            for d in &picture.dividers {
+                let middle = d.left + (d.right - d.left) / 2;
+                fill(hdc, RECT { left: middle, right: middle + 1, ..*d }, palette.border);
+            }
+            if let Some(r) = picture.focused_pane {
+                let line = scale(2, dpi);
+                for edge in [
+                    RECT { bottom: r.top + line, ..r },
+                    RECT { top: r.bottom - line, ..r },
+                    RECT { right: r.left + line, ..r },
+                    RECT { left: r.right - line, ..r },
+                ] {
+                    fill(hdc, edge, palette.accent);
+                }
+            }
         }
         let _ = EndPaint(window, &paint);
     }
@@ -1291,7 +1468,38 @@ fn repaint_bar() {
     }
 }
 
+/// Under the pages: a split's dividers and its outline.
+fn repaint_card() {
+    let client = client_rect();
+    if let Some((window, dpi)) = state(|s| (s.window, s.dpi)) {
+        let area = card_rect(client, dpi);
+        unsafe {
+            let _ = InvalidateRect(Some(window), Some(&area), false);
+        }
+    }
+}
+
+fn repaint_all() {
+    if let Some(window) = state(|s| s.window) {
+        unsafe {
+            let _ = InvalidateRect(Some(window), None, false);
+        }
+    }
+}
+
+/// Another space came on screen (spaces::settle): its tab in front, its pages
+/// placed, and everything drawn again in its colour.
+fn arrived() {
+    show_selected();
+    layout();
+    repaint_all();
+}
+
 fn mouse_moved(window: HWND, x: i32, y: i32) {
+    if state(|s| s.drag.is_some()) == Some(true) {
+        split::drag_to(x);
+        return;
+    }
     let found = hit(x, y);
     let (changed, track) = state(|s| {
         let item = found.map(|(item, _)| item);
@@ -1342,10 +1550,34 @@ fn frame_moved(window: HWND, over_maximize: bool) {
     }
 }
 
-fn clicked(x: i32, y: i32) {
+fn clicked(window: HWND, x: i32, y: i32) {
+    // A split's divider, taken hold of.
+    if let Some(index) = split::divider_at(x, y)
+        && split::begin_drag(index)
+    {
+        unsafe {
+            SetCapture(window);
+        }
+        return;
+    }
     match hit(x, y) {
         Some((Item::Tab(id), true)) => request_close(id),
-        Some((Item::Tab(id) | Item::Pin(id), _)) => select_tab(id),
+        // Alt+click: beside the page in front (Split View).
+        Some((Item::Tab(id), _)) if held(VK_MENU) && split::on() => {
+            split::join(id);
+        }
+        Some((Item::Tab(id), _)) => {
+            // A split's row: the page in it that last had the keys.
+            let to = state(|s| s.splits.split_of(id).map_or(id, |split| split.focused.unwrap_or(id))).unwrap_or(id);
+            select_tab(to);
+        }
+        Some((Item::Pin(id), _)) => select_tab(id),
+        Some((Item::Space(i), _)) => {
+            let bottom = client_rect().bottom;
+            if let Some(id) = state(|s| column(s, bottom).chips.get(i).map(|(_, c)| c.id.clone())).flatten() {
+                spaces::go_to(&id);
+            }
+        }
         Some((Item::NewTab, _)) => new_tab(),
         Some((Item::Back, _)) => page::back(),
         Some((Item::Forward, _)) => page::forward(),
@@ -1355,12 +1587,30 @@ fn clicked(x: i32, y: i32) {
             state(|s| s.pressed = Some(item));
             repaint_bar();
         }
+        // A page of a split with no page of its own (an empty tab): a click on its place takes it.
+        None => {
+            let client = client_rect();
+            let card = state(|s| card_rect(client, s.dpi));
+            let pane = card
+                .and_then(|card| state(|s| split::panes(s, card)))
+                .and_then(|panes| panes.into_iter().find(|(_, r)| inside(*r, x, y)).map(|(id, _)| id));
+            if let Some(id) = pane {
+                select_tab(id);
+            }
+        }
         _ => {}
     }
 }
 
 /// Minimize and close, let go over the button they were pressed on.
 fn released(window: HWND, x: i32, y: i32) {
+    if state(|s| s.drag.is_some()) == Some(true) {
+        unsafe {
+            let _ = ReleaseCapture();
+        }
+        split::end_drag();
+        return;
+    }
     let Some(pressed) = state(|s| s.pressed.take()).flatten() else { return };
     repaint_bar();
     if hit(x, y).map(|(item, _)| item) != Some(pressed) {
@@ -1396,11 +1646,23 @@ fn middle_clicked(x: i32, y: i32) {
 /// It is the only way to make a pin, as there (Pin Tab has no default shortcut).
 fn right_clicked(window: HWND, x: i32, y: i32) {
     let Some((Item::Tab(id) | Item::Pin(id), _)) = hit(x, y) else { return };
-    let Some((pinned, private)) = state(|s| (s.tabs.get(id).is_some_and(|t| t.pinned), s.private.contains_key(&id))) else {
+    let Some((pinned, private, can_join, in_split)) = state(|s| {
+        let front = s.tabs.selected_id();
+        let pinned = |t: u64| s.tabs.get(t).is_some_and(|t| t.pinned);
+        (
+            pinned(id),
+            s.private.contains_key(&id),
+            !pinned(id) && !pinned(front) && s.splits.can_join(id, front),
+            s.splits.split_of(id).is_some(),
+        )
+    }) else {
         return;
     };
     const PIN: usize = 1;
     const CLOSE: usize = 2;
+    const JOIN: usize = 3;
+    const SEPARATE: usize = 4;
+    let split_on = split::on();
     let pt = portuguese();
     let pin_label = match (pinned, pt) {
         (false, true) => "Fixar aba",
@@ -1414,6 +1676,14 @@ fn right_clicked(window: HWND, x: i32, y: i32) {
         // A private tab leaves nothing behind, and a pin is kept in the session: it can't be one.
         let pin_flags = if private { MF_STRING | MF_GRAYED } else { MF_STRING };
         let _ = AppendMenuW(menu, pin_flags, PIN, &HSTRING::from(pin_label));
+        // Split View's two, only with it on (upstream's tab menu).
+        if split_on {
+            let flags = |on: bool| if on { MF_STRING } else { MF_STRING | MF_GRAYED };
+            let join = if pt { "Dividir com a página atual" } else { "Split with Current Page" };
+            let separate = if pt { "Separar abas divididas" } else { "Separate Split Tabs" };
+            let _ = AppendMenuW(menu, flags(can_join), JOIN, &HSTRING::from(join));
+            let _ = AppendMenuW(menu, flags(in_split), SEPARATE, &HSTRING::from(separate));
+        }
         let _ = AppendMenuW(menu, MF_STRING, CLOSE, &HSTRING::from(close_label));
         let mut point = POINT { x, y };
         let _ = ClientToScreen(window, &mut point);
@@ -1424,6 +1694,10 @@ fn right_clicked(window: HWND, x: i32, y: i32) {
     match chosen {
         PIN => toggle_pin(id),
         CLOSE => request_close(id),
+        JOIN => {
+            split::join(id);
+        }
+        SEPARATE => split::separate(id),
         _ => {}
     }
 }
@@ -1434,6 +1708,10 @@ pub fn toggle_pin(id: u64) {
             return false;
         }
         let pinned = s.tabs.get(id).is_some_and(|t| t.pinned);
+        // A pin is never a page beside another.
+        if !pinned {
+            s.splits.remove(id);
+        }
         let changed = if pinned { s.tabs.unpin(id) } else { s.tabs.pin(id) };
         if changed {
             s.session_owed = true;
@@ -1441,6 +1719,8 @@ pub fn toggle_pin(id: u64) {
         changed
     });
     if changed == Some(true) {
+        place_pages();
+        repaint_card();
         repaint_column();
     }
 }
@@ -1473,7 +1753,8 @@ fn wheel(window: HWND, wparam: WPARAM, lparam: LPARAM) {
 fn reveal_selected() {
     let bottom = client_rect().bottom;
     state(|s| {
-        let selected = Item::Tab(s.tabs.selected_id());
+        let front = s.tabs.selected_id();
+        let selected = Item::Tab(s.splits.split_of(front).map_or(front, |split| split.first()));
         let column = column(s, bottom);
         let Some(row) = column.rows.iter().find(|r| r.item == selected) else { return };
         let scroll = s.scroll.clamp(0, column.most);
@@ -1582,13 +1863,47 @@ extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM, lpara
                 } else {
                     page::set_visible(true);
                     layout();
+                    peek::place();
+                    forms::place();
                 }
                 LRESULT(0)
             }
             WM_MOVE | WM_MOVING => {
                 page::window_moved();
                 place_drop();
+                peek::place();
+                forms::place();
                 DefWindowProcW(window, message, wparam, lparam)
+            }
+            // Another app in front, and back: the video that follows you
+            // (float::app_left), when Settings asks for it.
+            WM_ACTIVATEAPP => {
+                if wparam.0 == 0 {
+                    float::app_left();
+                }
+                DefWindowProcW(window, message, wparam, lparam)
+            }
+            WM_ACTIVATE => {
+                if (wparam.0 & 0xffff) as u32 != WA_INACTIVE {
+                    float::app_back();
+                }
+                DefWindowProcW(window, message, wparam, lparam)
+            }
+            float::WM_FLOAT => {
+                float::toggled();
+                LRESULT(0)
+            }
+            peek::WM_PEEK => {
+                peek::act(wparam, lparam);
+                LRESULT(0)
+            }
+            passwords::WM_PASSWORDS => {
+                passwords::act();
+                LRESULT(0)
+            }
+            import::WM_IMPORT => {
+                import::act();
+                LRESULT(0)
             }
             WM_ERASEBKGND => LRESULT(1),
             WM_PAINT => {
@@ -1614,7 +1929,47 @@ extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM, lpara
                 LRESULT(0)
             }
             WM_LBUTTONDOWN => {
-                clicked(x, y);
+                clicked(window, x, y);
+                LRESULT(0)
+            }
+            // A double click on a split's divider evens the pages out; anywhere
+            // else it is a second click like the first.
+            WM_LBUTTONDBLCLK => {
+                match split::divider_at(x, y) {
+                    Some(_) => split::even_out(),
+                    None => clicked(window, x, y),
+                }
+                LRESULT(0)
+            }
+            WM_CAPTURECHANGED => {
+                split::end_drag();
+                LRESULT(0)
+            }
+            // Over a split's divider, the pointer says it can be dragged.
+            WM_SETCURSOR if (lparam.0 & 0xffff) as u32 == HTCLIENT => {
+                let mut point = POINT::default();
+                let _ = GetCursorPos(&mut point);
+                let _ = ScreenToClient(window, &mut point);
+                let dragging = state(|s| s.drag.is_some()) == Some(true);
+                if (dragging || split::divider_at(point.x, point.y).is_some())
+                    && let Ok(cursor) = LoadCursorW(None, IDC_SIZEWE)
+                {
+                    SetCursor(Some(cursor));
+                    return LRESULT(1);
+                }
+                DefWindowProcW(window, message, wparam, lparam)
+            }
+            // The mouse's side buttons over the column and the bar: the space
+            // before or after, with spaces on (upstream's swipe).
+            WM_XBUTTONUP => {
+                let button = if ((wparam.0 >> 16) & 0xffff) as u16 == 1 { VK_XBUTTON1 } else { VK_XBUTTON2 };
+                if shortcut_with(button.0 as u32, false, false, false) {
+                    return LRESULT(1);
+                }
+                DefWindowProcW(window, message, wparam, lparam)
+            }
+            spaces::WM_SETTLE => {
+                spaces::settle();
                 LRESULT(0)
             }
             WM_LBUTTONUP => {
@@ -1706,6 +2061,7 @@ extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM, lpara
                 if let Some(old) = changed {
                     let _ = DeleteObject(old.into());
                     apply_theme();
+                    peek::repaint();
                 }
                 DefWindowProcW(window, message, wparam, lparam)
             }
@@ -1739,6 +2095,8 @@ extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM, lpara
                 let _ = KillTimer(Some(window), SLEEP_TIMER);
                 save();
                 page::close_all();
+                // Not owned by the window, so it would outlive it.
+                float::close_all();
                 PostQuitMessage(0);
                 LRESULT(0)
             }
@@ -1910,7 +2268,13 @@ pub fn held(key: VIRTUAL_KEY) -> bool {
 
 /// The window's own keys, whether the field or the page has the keyboard.
 pub fn shortcut(key: u32) -> bool {
-    shortcut_with(key, held(VK_CONTROL), held(VK_MENU), held(VK_SHIFT))
+    let (ctrl, alt) = (held(VK_CONTROL), held(VK_MENU));
+    // AltGr reaches Windows as Ctrl+Alt and types a character (² on ABNT2):
+    // never taken for one of the Ctrl+Alt keys.
+    if ctrl && alt && held(VK_RMENU) && !held(VK_LMENU) {
+        return false;
+    }
+    shortcut_with(key, ctrl, alt, held(VK_SHIFT))
 }
 
 /// The same keys with their modifiers given, as `bench key` sends them.
@@ -1918,10 +2282,34 @@ pub fn shortcut_with(key: u32, ctrl: bool, alt: bool, shift: bool) -> bool {
     let key = key as u16;
     let letter = |c: u8| key == u16::from(c);
     let command = ctrl && !alt;
+    let both = ctrl && alt && !shift;
+    let digit = (u16::from(b'1')..=u16::from(b'9')).contains(&key);
+    if both && digit {
+        // Spaces (upstream's ⌃1–9); with them off, the keys are the page's.
+        return spaces::select_number(usize::from(key - u16::from(b'0')));
+    } else if both && letter(b'N') {
+        return split::split_current();
+    } else if both && letter(b'L') {
+        // Upstream's ⌥⌘L: on Windows Ctrl+Alt, the keys Settings' search leaves free.
+        open_page("search://passwords");
+        return true;
+    } else if both && (key == VK_LEFT.0 || key == VK_RIGHT.0) {
+        return split::focus_step(key == VK_LEFT.0);
+    } else if !ctrl && !alt && (key == VK_XBUTTON1.0 || key == VK_XBUTTON2.0) {
+        // The side buttons, as WM_XBUTTONUP hands them on (and `bench key xbutton1`).
+        return spaces::uses_spaces() && {
+            spaces::step(if key == VK_XBUTTON1.0 { -1 } else { 1 });
+            true
+        };
+    }
     if command && !shift && letter(b'L') {
         focus_field();
-    } else if !ctrl && !alt && key == VK_ESCAPE.0 && veil::escape() {
-        // Esc stops the picker; otherwise it is the page's, or the field's.
+    } else if !ctrl && !alt && key == VK_ESCAPE.0 && (peek::escape() || forms::escape() || veil::escape()) {
+        // Esc puts a peek or the accounts' list away, or stops the picker; otherwise it is the page's, or the field's.
+    } else if command && !shift && key == VK_RETURN.0 && peek::keep() {
+        // Ctrl+Enter keeps a peek as a tab (upstream's ⌘↩); otherwise it is the page's.
+    } else if command && shift && letter(b'P') {
+        float::toggle();
     } else if command && shift && letter(b'B') {
         bookmarks::bookmark_front();
     } else if command && shift && letter(b'O') {
@@ -2309,6 +2697,8 @@ fn show_selected() {
         s.session_owed = true;
         let tab = s.tabs.selected();
         let (id, url, title) = (tab.id, tab.url.clone(), tab.title.clone());
+        // In a split, the page in front is the one with the keys.
+        s.splits.set_focused(id);
         let wakes = url.is_some() && !page::has_page(id);
         if wakes && let Some(tab) = s.tabs.get_mut(id) {
             tab.loading = true;
@@ -2317,6 +2707,38 @@ fn show_selected() {
     }) else {
         return;
     };
+    // A peek goes when another tab comes in front (upstream, with "Peek stays
+    // with its tab" off); one being kept is no longer a peek by now.
+    peek::close();
+    // The accounts' list goes; the offer to save shows only over its own tab.
+    forms::place();
+    // Gone back to the tab whose video floats: the video comes home to it.
+    if float::tab() == Some(id) && page::front() != Some(id) {
+        float::toggle();
+    }
+    // The pages beside it in its split, placed first: they stay on screen as it comes in front.
+    let beside: Vec<(u64, String)> = state(|s| {
+        let Some(split) = s.splits.split_of(id) else { return Vec::new() };
+        let others: Vec<u64> = split.tabs.iter().copied().filter(|&t| t != id).collect();
+        others
+            .into_iter()
+            .filter_map(|t| {
+                let tab = s.tabs.get_mut(t)?;
+                tab.asleep = false;
+                Some((t, tab.url.clone()?))
+            })
+            .collect()
+    })
+    .unwrap_or_default();
+    // Only when a split is or just was on screen: with Split View off this costs nothing.
+    let split = state(|s| !s.splits.is_empty()).unwrap_or(false);
+    if split || page::has_panes() {
+        place_pages();
+        repaint_card();
+    }
+    for (other, url) in beside {
+        page::wake(other, &url);
+    }
     page::show(id, url.as_deref());
     set_title(&title);
     if url.is_none() {
@@ -2402,6 +2824,71 @@ pub fn window() -> Option<HWND> {
     state(|s| s.window)
 }
 
+/// Whether `id` is a tab of the row on screen.
+pub fn has_tab(id: u64) -> bool {
+    state(|s| s.tabs.get(id).is_some()).unwrap_or(false)
+}
+
+pub fn dpi() -> i32 {
+    state(|s| s.dpi).unwrap_or(96)
+}
+
+pub fn is_dark() -> bool {
+    state(|s| s.dark).unwrap_or(false)
+}
+
+/// The window's colours and fonts, for the windows of ours beside it (a peek's strip).
+pub struct Look {
+    palette: Palette,
+    crumb_font: HFONT,
+    glyphs: HFONT,
+}
+
+pub fn look() -> Option<Look> {
+    state(|s| Look { palette: s.palette, crumb_font: s.crumb_font, glyphs: s.glyphs })
+}
+
+/// The card, where the page is, on the screen.
+pub fn card_on_screen() -> Option<RECT> {
+    let client = client_rect();
+    let (window, dpi) = state(|s| (s.window, s.dpi))?;
+    let card = card_rect(client, dpi);
+    let (mut corner, mut far) = (POINT { x: card.left, y: card.top }, POINT { x: card.right, y: card.bottom });
+    unsafe {
+        let _ = ClientToScreen(window, &mut corner);
+        let _ = ClientToScreen(window, &mut far);
+    }
+    Some(RECT { left: corner.x, top: corner.y, right: far.x, bottom: far.y })
+}
+
+/// A peek kept: a tab after `from`, in front, already holding the page at
+/// `url` (its page comes over from the peek, so nothing is asked for). From
+/// a private tab it is private, in the same profile, as a link opened from it.
+pub fn open_kept(from: u64, url: &str, title: &str) -> Option<u64> {
+    state(|s| {
+        s.tabs.set_now(now_ms());
+        let id = s.tabs.open_in_front(url, Some(from));
+        let private = s.private.get(&from).cloned();
+        if let Some(tab) = s.tabs.get_mut(id) {
+            tab.title = title.to_string();
+            tab.loading = false;
+        }
+        match private {
+            Some(profile) => {
+                s.private.insert(id, profile);
+            }
+            // Somewhere you have been, as any page opened in a tab.
+            None => {
+                if history(s).record_visit(url, title, now_ms()) {
+                    s.history_owed = true;
+                }
+            }
+        }
+        s.session_owed = true;
+        id
+    })
+}
+
 /// A bookmark, or a whole folder of them: the first in front, the rest
 /// beside it, asleep, so ten sites cost one page until you go to them.
 pub fn open_in_tabs(urls: &[String]) {
@@ -2458,7 +2945,20 @@ fn close_tab(id: u64) {
             tab.title.clear();
         }
         let was_front = s.tabs.selected_id() == id;
-        (was_front, s.tabs.close(id).is_some())
+        // A page of a split: the others take its room, and the keys go to the
+        // one beside it (Browser.close, Split.swift).
+        let partner = match s.splits.remove(id) {
+            searchwin_split::Removed::Shrunk { partner } => Some(partner),
+            searchwin_split::Removed::Dissolved { remaining } => Some(remaining),
+            searchwin_split::Removed::None => None,
+        };
+        let mut moved = s.tabs.close(id).is_some();
+        if was_front && let Some(partner) = partner.filter(|p| s.tabs.get(*p).is_some()) {
+            s.tabs.select(partner);
+            s.splits.set_focused(partner);
+            moved = true;
+        }
+        (was_front, moved)
     }) else {
         return;
     };
@@ -2476,7 +2976,16 @@ fn close_tab(id: u64) {
 /// A link that asked for a new window: a tab beside its page, behind it when Ctrl was held.
 /// From a private tab, the new one is private too, and shares its cookies:
 /// a sign-in followed through a link stays signed in.
-fn open_link(url: &str, background: bool, opener: u64) {
+fn open_link(url: &str, background: bool, opener: u64, popup: bool) {
+    // Sent to the space a rule names, when it is another one: never from a
+    // private tab, and never a pop-up, which belongs with its page (SpaceRoutes.swift:11-20).
+    if !popup
+        && !is_private(opener)
+        && let Some(space) = spaces::sends_to(url)
+    {
+        spaces::send(url, &space);
+        return;
+    }
     let Some(id) = state(|s| {
         s.tabs.set_now(now_ms());
         let id = if background { s.tabs.open_in_background(url, Some(opener)) } else { s.tabs.open_in_front(url, Some(opener)) };
@@ -2511,9 +3020,14 @@ fn sleep_idle() {
         searchwin_prefs::Sleep::Sooner => SleepPace::Sooner,
     });
     // A private tab never sleeps: its page is all there is of it, and would come back empty.
+    // Nor does a page on screen beside the one in front, nor the floating video's.
+    let floating = float::tab();
     let due: Vec<u64> = state(|s| {
         let due = s.tabs.due_to_sleep(now, pace.wait_ms());
-        due.into_iter().filter(|id| !s.private.contains_key(id)).collect()
+        let front = s.tabs.selected_id();
+        due.into_iter()
+            .filter(|id| !s.private.contains_key(id) && !s.splits.is_visible(*id, front) && Some(*id) != floating)
+            .collect()
     })
     .unwrap_or_default();
     if due.is_empty() {
@@ -2583,21 +3097,34 @@ fn without_private(mut shape: Shape, tabs: &Tabs, private: &HashMap<u64, String>
 fn save() {
     let folder = data_folder();
     let Some(session) = state(|s| {
-        std::mem::take(&mut s.session_owed).then(|| without_private(Shape::from_tabs(&s.tabs), &s.tabs, &s.private))
+        let owed = std::mem::take(&mut s.session_owed);
+        // A space just deleted has no file to write: it is being cleared away.
+        let gone = s.spaces.space(&s.row_of).is_none();
+        (owed && !gone).then(|| {
+            let mut shape = without_private(Shape::from_tabs(&s.tabs), &s.tabs, &s.private);
+            if !s.splits.is_empty() || split::on() {
+                // Splits by place among the tabs written: no private tab is.
+                let order: Vec<u64> = s.tabs.iter().map(|t| t.id).filter(|id| !s.private.contains_key(id)).collect();
+                shape.splits = searchwin_split::to_session(&s.splits, &order);
+            }
+            (searchwin_spaces::session_path(&folder, &s.row_of), shape)
+        })
     }) else {
         return;
     };
     let _ = std::fs::create_dir_all(&folder);
-    if let Some(shape) = session
-        && let Err(error) = searchwin_tabs::save(&folder.join("session.json"), &shape)
+    if let Some((path, shape)) = session
+        && let Err(error) = searchwin_tabs::save(&path, &shape)
     {
         crash_log(&format!("session not saved: {error}"));
     }
+    // History is the profile on screen's.
+    let own = spaces::folder();
     let written = state(|s| {
         if !std::mem::take(&mut s.history_owed) {
             return Ok(());
         }
-        s.history.as_ref().map_or(Ok(()), |h| h.save(&folder.join("history.json")))
+        s.history.as_ref().map_or(Ok(()), |h| h.save(&own.join("history.json")))
     });
     if let Some(Err(error)) = written {
         crash_log(&format!("history not saved: {error}"));
@@ -2658,6 +3185,36 @@ pub fn bench_state() -> serde_json::Value {
         "tabs": tabs,
     });
     value["downloading"] = serde_json::json!(downloads::active());
+    value["float"] = float::bench();
+    value["peek"] = peek::bench();
+    value["forms"] = forms::bench();
+    value["passwords"] = passwords::bench();
+    value["import"] = import::bench();
+    // Spaces and profiles as the window has them, and the split in front as laid out.
+    let client = client_rect();
+    if let Some((spaces, split)) = state(|s| {
+        let card = card_rect(client, s.dpi);
+        let rect = |r: RECT| serde_json::json!([r.left, r.top, r.right - r.left, r.bottom - r.top]);
+        let front = s.tabs.selected_id();
+        let mut split = serde_json::json!({
+            "on": split::on(),
+            "splits": s.splits.list.iter().map(|x| x.tabs.clone()).collect::<Vec<_>>(),
+            "focused": front,
+            "card": rect(card),
+        });
+        if let Some(layout) = split::layout_of(s, card) {
+            split["paired"] = serde_json::json!(layout.paired);
+            split["dividers"] = layout.dividers.iter().map(|d| rect(split::win(*d))).collect();
+            split["panes"] = split::panes(s, card)
+                .iter()
+                .map(|(id, r)| serde_json::json!({ "id": id, "rect": rect(*r), "focused": *id == front }))
+                .collect();
+        }
+        (spaces::bench(&s.spaces, &s.row_of), split)
+    }) {
+        value["spaces"] = spaces;
+        value["split"] = split;
+    }
     // The bar as drawn: what back and forward can do, the page's place, and
     // whether the field and the drop-down are out.
     let (back, forward) = page::can_go();
@@ -2765,6 +3322,8 @@ pub fn page_event(id: page::TabId, event: page::Event) {
             save_soon();
         }
         page::Event::Loaded(ok) => {
+            // A sign-in sent from this tab is judged by the page it led to.
+            forms::loaded(id);
             let visit = state(|s| {
                 let tab = s.tabs.get_mut(id)?;
                 tab.loading = false;
@@ -2788,7 +3347,13 @@ pub fn page_event(id: page::TabId, event: page::Event) {
                 save_soon();
             }
         }
-        page::Event::NewWindow { url, background } => open_link(&url, background, id),
+        page::Event::NewWindow { url, background, popup } => open_link(&url, background, id, popup),
+        page::Event::Focused => {
+            // A click in the page beside the one in front: it is in front now.
+            if !front && state(|s| s.splits.is_visible(id, s.tabs.selected_id())) == Some(true) {
+                select_tab(id);
+            }
+        }
         page::Event::History => {
             if front {
                 repaint_bar();

@@ -26,6 +26,8 @@ const SETTINGS: &str = include_str!("../assets/pages/settings.html");
 const HISTORY: &str = include_str!("../assets/pages/history.html");
 const BOOKMARKS: &str = include_str!("../assets/pages/bookmarks.html");
 const DOWNLOADS: &str = include_str!("../assets/pages/downloads.html");
+const PASSWORDS: &str = include_str!("../assets/pages/passwords.html");
+const IMPORT: &str = include_str!("../assets/pages/import.html");
 
 /// Our pages run only their own inline code, load nothing, and can't be put in another page's frame.
 pub const HEADERS: &str = "Content-Type: text/html; charset=utf-8\r\n\
@@ -76,25 +78,55 @@ pub fn page(uri: &str) -> Option<String> {
         "history" => HISTORY,
         "bookmarks" => BOOKMARKS,
         "downloads" => DOWNLOADS,
+        "passwords" => PASSWORDS,
+        "import" => IMPORT,
         _ => return None,
     };
     Some(html.replacen("<!--common-->", &format!("<style>{COMMON_CSS}</style><script>{COMMON_JS}</script>"), 1))
 }
 
-/// A message posted by a page, from `source`. The answer goes back to that
-/// page; None is no answer at all, which is all a web page ever gets.
-pub fn message(source: &str, json: &str) -> Option<String> {
+/// The host of one of our pages: "settings", "passwords".
+fn page_name(source: &str) -> Option<String> {
+    url::Url::parse(source).ok().filter(|u| u.scheme() == INTERNAL_SCHEME).and_then(|u| u.host_str().map(str::to_string))
+}
+
+/// A message posted by a page, from `source`, in tab `tab`. The answer goes
+/// back to that page; None is no answer at all, which is all a web page
+/// ever gets. Passwords are asked about only by search://passwords, and
+/// bringing things over only by search://import: no other page of ours
+/// has a reason to.
+pub fn message(tab: crate::page::TabId, source: &str, json: &str) -> Option<String> {
     if !is_internal(source) {
         return None;
     }
     let asked: Value = serde_json::from_str(json).ok()?;
     let text = |key: &str| asked.get(key).and_then(Value::as_str).unwrap_or_default().to_string();
+    let from = page_name(source).unwrap_or_default();
     let mut answer = match asked.get("op").and_then(Value::as_str)? {
+        op if op.starts_with("passwords.") => match from.as_str() {
+            "passwords" | "import" => crate::passwords::message(tab, &from, op, &asked),
+            _ => return None,
+        },
+        op if op.starts_with("import.") => match from.as_str() {
+            "import" => crate::import::message(tab, op, &asked),
+            _ => return None,
+        },
         "settings.get" => settings(None),
         "settings.set" => {
             let value = asked.get("value").cloned().unwrap_or(Value::Null);
-            settings(change(&text("key"), value).err())
+            let key = text("key");
+            let error = change(&key, value).err();
+            // Split View takes effect at once: the splits there are come out, or go.
+            if key == "split_view" && error.is_none() {
+                crate::split::turned(prefs(|p| p.split_view));
+            }
+            // Peek's listener goes into every page's next document, or out of it.
+            if (key == "peek" || key == "peek_with") && error.is_none() {
+                crate::page::refresh_peek();
+            }
+            settings(error)
         }
+        op if op.starts_with("spaces.") || op.starts_with("profiles.") => crate::spaces::message(op, &asked),
         "history.list" => {
             let mut entries = crate::history_list(&text("query"));
             let more = entries.len() > HISTORY_ROWS;
@@ -114,6 +146,10 @@ pub fn message(source: &str, json: &str) -> Option<String> {
         op if op.starts_with("downloads.") => crate::downloads::message(op, &asked),
         _ => json!({ "error": "unknown op" }),
     };
+    // Answered later (crate::page::post_to), once a check or a dialog is done.
+    if answer.is_null() {
+        return None;
+    }
     answer["id"] = asked.get("id").cloned().unwrap_or(Value::Null);
     Some(answer.to_string())
 }
@@ -157,12 +193,44 @@ mod tests {
     #[test]
     fn web_pages_get_no_answer() {
         let asked = r#"{"op":"history.clear","id":1}"#;
-        assert_eq!(message("https://example.com/", asked), None);
-        assert_eq!(message("file:///C:/x.html", asked), None);
-        assert_eq!(message("about:blank", asked), None);
-        for op in ["downloads.list", "downloads.open", "downloads.show", "bookmarks.list", "bookmarks.import", "bookmarks.remove"] {
-            let asked = json!({ "op": op, "id": 1, "row": 1, "node": "x", "from": "chrome" }).to_string();
-            assert_eq!(message("https://example.com/", &asked), None);
+        assert_eq!(message(1, "https://example.com/", asked), None);
+        assert_eq!(message(1, "file:///C:/x.html", asked), None);
+        assert_eq!(message(1, "about:blank", asked), None);
+        for op in [
+            "passwords.list",
+            "passwords.reveal",
+            "passwords.copy",
+            "passwords.export",
+            "passwords.import",
+            "passwords.delete",
+            "passwords.save",
+            "import.list",
+            "import.run",
+            "downloads.list",
+            "downloads.open",
+            "downloads.show",
+            "bookmarks.list",
+            "bookmarks.import",
+            "bookmarks.remove",
+            "spaces.get",
+            "spaces.delete",
+            "profiles.delete",
+            "settings.set",
+        ] {
+            let asked = json!({ "op": op, "id": 1, "row": 1, "node": "x", "from": "chrome", "host": "a.com", "user": "u" }).to_string();
+            assert_eq!(message(1, "https://example.com/", &asked), None);
+            assert_eq!(message(1, "searchx://passwords/", &asked), None);
         }
+    }
+
+    #[test]
+    fn passwords_and_imports_answer_only_their_own_page() {
+        for op in ["passwords.list", "passwords.reveal", "passwords.export", "import.list", "import.run"] {
+            let asked = json!({ "op": op, "id": 1 }).to_string();
+            assert_eq!(message(1, "search://settings", &asked), None, "{op}");
+            assert_eq!(message(1, "search://history", &asked), None, "{op}");
+        }
+        assert_eq!(message(1, "search://passwords", r#"{"op":"import.run","id":1}"#), None);
+        assert!(page("search://passwords").is_some() && page("search://import").is_some());
     }
 }

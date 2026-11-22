@@ -59,6 +59,12 @@ fn handle(window: HWND, request: Request, reply: Reply) {
             crate::type_and_go(&text);
             reply.complete(Response::ok(Value::Null));
         }
+        // The accounts' list and the offer to save are windows of ours: a
+        // click on a row or a button, by name ("forms:pick 0", "forms:save").
+        Request::Key { keys } if keys.starts_with("forms:") => {
+            let handled = crate::forms::bench_act(&keys["forms:".len()..]);
+            reply.complete(Response::ok(json!({ "handled": handled })));
+        }
         Request::Key { keys } => match parse_keys(&keys) {
             Some((key, ctrl, alt, shift)) => {
                 let handled = crate::shortcut_with(key, ctrl, alt, shift) || crate::field_key(key, ctrl, alt, shift);
@@ -149,6 +155,9 @@ fn virtual_key(name: &str) -> Option<u32> {
         "space" => VK_SPACE,
         "." | "period" => VK_OEM_PERIOD,
         "comma" => VK_OEM_COMMA,
+        // The mouse's side buttons, as the window hands them to its keys.
+        "xbutton1" => VK_XBUTTON1,
+        "xbutton2" => VK_XBUTTON2,
         _ => {
             let mut chars = name.chars();
             let c = chars.next()?;

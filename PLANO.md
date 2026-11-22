@@ -9,6 +9,14 @@ não há nada a levar para o Windows. Logo, **é uma reescrita**.
 com o campo e as abas, a página como um cartão. Nada entra se piorar o tempo
 até a primeira página ou a memória sem motivo explícito.
 
+**Animações fluidas e bonitas** fazem parte da identidade e diferenciam o app
+dos outros navegadores. As regras:
+
+- animação curta, com curva suave, sem engasgo;
+- acompanhar a taxa de atualização da tela, nunca um timer fixo;
+- respeitar "animações desligadas" do Windows;
+- nunca atrasar a primeira página nem pesar na memória.
+
 ## Decisões
 
 | Tema | Escolha | Por quê |
@@ -84,13 +92,83 @@ Pendências (pequenas):
 - Completar endereço em cinza ainda não completa para favoritos.
 - Sessão do Mac: `pinID`/`groupID` por aba não são lidos.
 
-### Fase 2 — Organização ⬜
-Spaces, perfis, Split View, vídeo flutuante (PiP), peek.
+### Fase 2 — Organização ✅ (18/11/2026)
 
-### Fase 3 — Senhas e importação ⬜
-Cofre no Gerenciador de Credenciais do Windows, passkeys (WebAuthn/Windows
-Hello pelo WebView2), importar de Chrome/Edge/Arc/Brave (senhas do Chrome só
-por CSV — criptografia "app-bound").
+Release x64: **exe ~1050 KB, app ~3,6 MB, 1ª página ~307 ms**. 280 testes,
+clippy limpo. Tudo **desligado por padrão**, como no upstream — desligado,
+não cria nada (nem janela, nem script).
+
+| Item | Como |
+|---|---|
+| Spaces: abas separadas, nome/cor/ícone, chips no pé da coluna, cor tingindo a coluna; sessão por Space (`session-<id>.json`) | Ajustes › Spaces; Ctrl+Alt+1–9, botões laterais do mouse |
+| Levar links de sites escolhidos para um Space | Ajustes › Spaces |
+| Perfis: cookies, histórico e favoritos próprios (perfil WebView2 por perfil; `Profiles\<id>\`) | Ajustes › Perfis |
+| Split View: até 4 páginas, divisória arrastável, foco com contorno, volta após reiniciar | Ajustes › Abas; Ctrl+Alt+N, Ctrl+Alt+←/→, Alt+clique, menu da aba |
+| Vídeo flutuante: a página vai para uma janela sempre no topo, sem recarregar | Ctrl+Shift+P; "vídeo segue para outro app" em Ajustes |
+| Peek: link abre num painel sobre a página; vira aba sem recarregar | Ajustes › Navegação; Shift ou Alt + clique; Esc, Ctrl+Enter |
+
+Crates novas: `crates/spaces`, `crates/split`.
+
+Sem teste automático (mouse) — testar à mão: arrastar/duplo clique na
+divisória, Alt+clique, menu da aba, chips dos Spaces, controles da janela
+flutuante (arrastar, redimensionar, voltar, ×), botões do peek e o
+Shift/Alt+clique de verdade.
+
+Deixado de fora do upstream: janela pequena para links de outros apps
+(Little), acoplar/arremessar o vídeo flutuante e seus botões de
+tocar/pular, esqueleto de carregamento do peek e "peek ao lado".
+
+### Fase 3 — Senhas e importação ✅ (21/11/2026)
+
+Release x64: **exe ~1300 KB** (+250 KB: Gerenciador de Credenciais, WinRT do
+Windows Hello, SQLite/sessão da importação, diálogos de arquivo), app ~3,6 MB,
+1ª página ~310–333 ms (ruído; sem A/B na mesma sessão). 321 testes, clippy
+limpo, `cargo audit` sem alertas. Revisão de segurança feita por agente
+separado: 3 médios + 5 leves, corrigidos; a segunda revisão achou mais 5
+leves, também corrigidos.
+
+| Item | Como |
+|---|---|
+| Cofre no Gerenciador de Credenciais (`SearchWin:host:usuário`) | — |
+| Contas oferecidas sob o campo de login; preencher com um clique | só no host exato (com porta); quadro só se for da mesma origem |
+| Barra para salvar/atualizar/nunca após o login | nada em aba privada; https nunca vira http |
+| `search://passwords`: ver, copiar, editar, apagar, importar/exportar CSV | Ctrl+Alt+L; ver/copiar/exportar pedem Windows Hello |
+| Copiar senha: fora do histórico da área de transferência, limpa em 30 s | — |
+| Importar de Chrome/Edge/Brave/Arc/Firefox: favoritos, histórico, abas, Spaces e pins do Arc | `search://import` |
+| Passkeys | ficam com o Windows (WebAuthn do WebView2 ligado) |
+
+Crates novas: `crates/vault`, `crates/import`. Ganchos de teste novos:
+`SEARCHWIN_VAULT_PREFIX`, `SEARCHWIN_IMPORT_BASES`, `SEARCHWIN_VERIFY` e
+`SEARCHWIN_BENCH_FILE` (os dois últimos só com `SEARCHWIN_BENCH=1`; bench
+sem prefixo de teste recusa o cofre).
+
+Decisões: sem Windows Hello configurado, ver/copiar/exportar são recusados
+com aviso (sem caminho alternativo pela senha do Windows). Senhas do Chrome
+só por CSV (criptografia "app-bound"). Sem "salvar para o site todo": conta
+vale só para o host exato — login em subdomínio irmão não é oferecido.
+
+Testar à mão: lista de contas e barra de salvar (aparência), clique na lista
+(ignorado nos primeiros 500 ms; apertar numa linha e soltar em outra não
+faz nada; lista fica dentro da página nas bordas; o mesmo vale para os
+botões da barra de salvar), prompt real do Windows
+Hello, copiar + limpeza em 30 s, diálogos de arquivo do CSV.
+
+Deixado de fora: ajuste "oferecer salvar senhas" (sempre ligado), pastas de
+pins do Arc (entram como pins soltos).
+
+### Animações ⬜ (transversal, antes de distribuir)
+
+O GDI puro não anima de forma suave. Para chegar lá, a coluna e as transições
+passam para **DirectComposition**, que já vem no Windows e não exige runtime
+novo. Medir antes e depois: exe, memória, primeira página.
+
+O que anima:
+- abrir, fechar e trocar aba;
+- trocar de Space (cor da coluna);
+- sugestões do campo;
+- Split View e divisória;
+- peek e vídeo flutuante;
+- barra de salvar senha e lista de contas.
 
 ### Fase 4 — Distribuição ⬜
 Extensões do Chrome (WebView2 tem suporte parcial e sem popup — desenhar),

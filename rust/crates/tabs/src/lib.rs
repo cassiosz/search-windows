@@ -137,7 +137,7 @@ pub struct Tabs {
     /// yet: carried through load -> save untouched so a session shaped like
     /// upstream's isn't stripped of them (see `session::Shape`).
     pub(crate) groups: Option<serde_json::Value>,
-    pub(crate) splits: Vec<serde_json::Value>,
+    pub splits: Vec<serde_json::Value>,
 }
 
 impl Default for Tabs {

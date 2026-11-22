@@ -131,6 +131,30 @@ impl ReaderLook {
     }
 }
 
+/// The click that peeks at a link (upstream Settings › Shortcuts):
+/// Shift-click unless changed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum PeekWith {
+    #[default]
+    Shift,
+    Alt,
+}
+
+impl PeekWith {
+    pub const ALL: [PeekWith; 2] = [PeekWith::Shift, PeekWith::Alt];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            PeekWith::Shift => "shift",
+            PeekWith::Alt => "alt",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<PeekWith> {
+        PeekWith::ALL.into_iter().find(|p| p.key() == key)
+    }
+}
+
 /// Where the tabs are. Only down the left for now; kept so a file written
 /// once the others exist still reads here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -162,6 +186,14 @@ pub struct Prefs {
     pub close_goes_back: bool,
     /// Chosen in the reader itself, not in Settings; kept so it is there next time.
     pub reader_look: ReaderLook,
+    /// Settings › Tabs › Split View: off until turned on, as upstream.
+    pub split_view: bool,
+    /// A playing video floats out when you go to another app, and back when
+    /// you return (upstream's floatsAway). Off until turned on.
+    pub float_away: bool,
+    /// A modified click on a link opens it in a panel over the page. Off until turned on.
+    pub peek: bool,
+    pub peek_with: PeekWith,
 }
 
 impl Default for Prefs {
@@ -174,6 +206,10 @@ impl Default for Prefs {
             tabs: TabsLayout::default(),
             close_goes_back: false,
             reader_look: ReaderLook::default(),
+            split_view: false,
+            float_away: false,
+            peek: false,
+            peek_with: PeekWith::default(),
         }
     }
 }
@@ -224,6 +260,10 @@ impl Prefs {
         fields.insert("tabs".into(), self.tabs.key().into());
         fields.insert("close_goes_back".into(), self.close_goes_back.into());
         fields.insert("reader_look".into(), self.reader_look.key().into());
+        fields.insert("split_view".into(), self.split_view.into());
+        fields.insert("float_away".into(), self.float_away.into());
+        fields.insert("peek".into(), self.peek.into());
+        fields.insert("peek_with".into(), self.peek_with.key().into());
         Value::Object(fields)
     }
 
@@ -241,6 +281,10 @@ impl Prefs {
             "tabs" => self.tabs = text.and_then(TabsLayout::from_key).ok_or_else(wrong)?,
             "close_goes_back" => self.close_goes_back = on.ok_or_else(wrong)?,
             "reader_look" => self.reader_look = text.and_then(ReaderLook::from_key).ok_or_else(wrong)?,
+            "split_view" => self.split_view = on.ok_or_else(wrong)?,
+            "float_away" => self.float_away = on.ok_or_else(wrong)?,
+            "peek" => self.peek = on.ok_or_else(wrong)?,
+            "peek_with" => self.peek_with = text.and_then(PeekWith::from_key).ok_or_else(wrong)?,
             _ => return Err(format!("no setting called {key}")),
         }
         Ok(())
@@ -289,6 +333,10 @@ mod tests {
             tabs: TabsLayout::Left,
             close_goes_back: true,
             reader_look: ReaderLook::Dark,
+            split_view: true,
+            float_away: true,
+            peek: true,
+            peek_with: PeekWith::Alt,
         };
         prefs.save(&path).unwrap();
         assert_eq!(Prefs::load(&path), prefs);
@@ -313,7 +361,7 @@ mod tests {
         let value = Prefs { engine: Engine::DuckDuckGo, ..Prefs::default() }.to_value();
         assert_eq!(
             value,
-            json!({ "engine": "duckduckgo", "custom_engine": "", "shield": true, "sleep": "normal", "tabs": "left", "close_goes_back": false, "reader_look": "system" })
+            json!({ "engine": "duckduckgo", "custom_engine": "", "shield": true, "sleep": "normal", "tabs": "left", "close_goes_back": false, "reader_look": "system", "split_view": false, "float_away": false, "peek": false, "peek_with": "shift" })
         );
     }
 
@@ -355,5 +403,24 @@ mod tests {
         for look in ReaderLook::ALL {
             assert_eq!(ReaderLook::from_key(look.key()), Some(look));
         }
+        for with in PeekWith::ALL {
+            assert_eq!(PeekWith::from_key(with.key()), Some(with));
+        }
+    }
+
+    #[test]
+    fn floating_away_and_peeking_are_off_until_turned_on() {
+        let mut prefs = Prefs::default();
+        assert!(!prefs.float_away && !prefs.peek);
+        assert_eq!(prefs.peek_with, PeekWith::Shift);
+        prefs.set("float_away", json!(true)).unwrap();
+        prefs.set("peek", json!(true)).unwrap();
+        prefs.set("peek_with", json!("alt")).unwrap();
+        assert!(prefs.float_away && prefs.peek);
+        assert_eq!(prefs.peek_with, PeekWith::Alt);
+        // Only the clicks Settings offers.
+        assert!(prefs.set("peek_with", json!("ctrl")).is_err());
+        assert!(prefs.set("peek", json!("yes")).is_err());
+        assert_eq!(prefs.peek_with, PeekWith::Alt);
     }
 }

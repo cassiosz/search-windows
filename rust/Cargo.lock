@@ -187,9 +187,13 @@ dependencies = [
  "searchwin-curtain",
  "searchwin-downloads",
  "searchwin-history",
+ "searchwin-import",
  "searchwin-prefs",
  "searchwin-shield",
+ "searchwin-spaces",
+ "searchwin-split",
  "searchwin-tabs",
+ "searchwin-vault",
  "serde_json",
  "url",
  "webview2-com",
@@ -243,6 +247,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "searchwin-import"
+version = "0.1.0"
+dependencies = [
+ "searchwin-bookmarks",
+ "searchwin-history",
+ "searchwin-tabs",
+ "serde",
+ "serde_json",
+ "url",
+]
+
+[[package]]
 name = "searchwin-prefs"
 version = "0.1.0"
 dependencies = [
@@ -258,11 +274,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "searchwin-spaces"
+version = "0.1.0"
+dependencies = [
+ "searchwin-tabs",
+ "serde",
+ "serde_json",
+ "url",
+]
+
+[[package]]
+name = "searchwin-split"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "searchwin-tabs"
 version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "searchwin-vault"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "url",
+ "windows",
 ]
 
 [[package]]

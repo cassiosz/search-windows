@@ -7,6 +7,11 @@ input.switch::before{content:"";position:absolute;top:3px;left:3px;width:14px;he
 input.switch:checked{background:var(--accent)}
 input.switch:checked::before{left:19px;background:var(--on)}
 #custom_engine{width:260px}
+.list input[type=text]{width:150px}
+.list select{max-width:120px}
+.tools{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.tools button{padding:3px 9px}
+.dot{width:22px;height:22px;border-radius:6px;display:inline-grid;place-items:center;font-size:11px;font-weight:600;flex:none;background:var(--field);border:1px solid var(--border)}
 .wrong{color:#c42b1c}
 </style></head>
 <body><main>
@@ -18,23 +23,47 @@ input.switch:checked::before{left:19px;background:var(--on)}
 <script>
 const T = pt ? {
   title: 'Ajustes', find: 'Procurar um ajuste', none: 'Nenhum ajuste encontrado', custom: 'Personalizado',
-  search: 'Busca', tabs: 'Abas', memory: 'Memória', blocking: 'Bloqueio',
+  search: 'Busca', tabs: 'Abas', memory: 'Memória', blocking: 'Bloqueio', browsing: 'Navegação',
+  float_away: ['O vídeo vai junto para outro app', 'Um vídeo tocando sai para uma janelinha quando você troca de app, e volta quando você volta. Ctrl+Shift+P faz isso à mão', 'vídeo flutuante pip picture janela'],
+  peek: ['Espiar links', 'Um clique com a tecla escolhida abre o link num painel sobre a página; Esc fecha, Ctrl+Enter vira aba', 'espiar peek painel link prévia'],
+  peek_with: ['Espiar com', 'A tecla segurada ao clicar no link', 'espiar tecla shift alt clique'],
+  clicks: {shift: 'Shift + clique', alt: 'Alt + clique'},
   engine: ['Buscar com', 'Para onde vão as palavras que não são um endereço', 'motor buscador google duckduckgo bing kagi'],
   custom_engine: ['Endereço de busca próprio', 'Ponha %s onde vão as palavras', 'personalizado modelo url'],
   wrong: 'Precisa de um endereço com %s; até lá, busca no Google',
   layout: ['Abas', 'Na lateral esquerda, em coluna', 'coluna lateral esquerda vertical'],
   close_goes_back: ['Fechar uma aba volta para a anterior', 'Senão, você cai na aba ao lado', 'fechar anterior recente'],
+  split_view: ['Split View', 'Páginas lado a lado: Ctrl+Alt+N divide a página, Ctrl+Alt+←/→ passa de uma à outra, Alt+clique numa aba a põe ao lado', 'dividir lado a lado split painel'],
+  spaces_t: 'Espaços', profiles_t: 'Perfis',
+  spaces_on: ['Espaços', 'Fileiras de abas próprias, cada uma com seus logins; Ctrl+Alt+1–9 ou os botões laterais do mouse trocam', 'espaços spaces fileira'],
+  sends_links: ['Mandar links para um espaço', 'Links para os sites escolhidos abrem no espaço deles', 'links regras rotas sites'],
+  one_window: ['Perfis numa janela só', 'Os espaços de todos os perfis no mesmo lugar', 'perfis janela única'],
+  site: 'site, ex. notion.so', add: 'Adicionar', remove: 'Remover', open: 'Abrir', del: 'Apagar', here: 'aberto',
+  space_name: 'Nome do novo espaço', own: 'Logins próprios', profile_name: 'Nome do novo perfil',
+  sure_space: n => 'Apagar o espaço "' + n + '", suas abas e seus logins?', sure_profile: n => 'Apagar o perfil "' + n + '" com tudo o que ele guarda: espaços, logins, histórico e favoritos?',
   sleep: ['Pôr para dormir as abas sem uso', 'Uma aba em repouso solta a página e volta de onde você parou', 'memória dormir suspender ram'],
   paces: {later: 'Mais tarde — após duas horas', normal: 'Normal — após meia hora', sooner: 'Mais cedo — após dez minutos'},
   shield: ['Bloquear anúncios e rastreadores', 'Terceiros que só servem para vigiar, e os anúncios do YouTube', 'shield anúncios bloqueador rastreio youtube adblock'],
 } : {
   title: 'Settings', find: 'Find a setting', none: 'No setting matches', custom: 'Custom',
-  search: 'Searching', tabs: 'Tabs', memory: 'Memory', blocking: 'Blocking',
+  search: 'Searching', tabs: 'Tabs', memory: 'Memory', blocking: 'Blocking', browsing: 'Browsing',
+  float_away: ['Video follows you to another app', 'A playing video goes out into a small window when you switch apps, and back when you return. Ctrl+Shift+P does it by hand', 'floating video pip picture window'],
+  peek: ['Peek at links', 'A click with the key chosen opens the link in a panel over the page; Esc closes it, Ctrl+Enter makes it a tab', 'peek preview panel link'],
+  peek_with: ['Peek with', 'The key held as you click the link', 'peek key shift alt click'],
+  clicks: {shift: 'Shift + click', alt: 'Alt + click'},
   engine: ['Search with', "Where words that aren't an address go", 'engine google duckduckgo bing kagi'],
   custom_engine: ['Custom search address', 'Put %s where the words go', 'template url'],
   wrong: 'Needs an address with %s; until then, Google searches',
   layout: ['Tabs', 'Down the left side, in a column', 'sidebar vertical column left'],
   close_goes_back: ['Closing a tab goes back to the one before', 'Otherwise you land on the tab beside it', 'close previous recent'],
+  split_view: ['Split View', 'Pages side by side: Ctrl+Alt+N splits the page, Ctrl+Alt+Left/Right goes between them, Alt+click on a tab puts it beside', 'split side by side pane'],
+  spaces_t: 'Spaces', profiles_t: 'Profiles',
+  spaces_on: ['Spaces', 'Rows of tabs of their own, each with its own sign-ins; Ctrl+Alt+1–9 or the mouse side buttons switch', 'spaces rows workspaces'],
+  sends_links: ['Send links to a space', 'Links to the sites chosen open in their space', 'links rules routes sites'],
+  one_window: ['Profiles in one window', "Every profile's spaces in the same place", 'profiles single window'],
+  site: 'site, e.g. notion.so', add: 'Add', remove: 'Remove', open: 'Open', del: 'Delete', here: 'open',
+  space_name: 'New space name', own: 'Own sign-ins', profile_name: 'New profile name',
+  sure_space: n => 'Delete the space "' + n + '", its tabs and its sign-ins?', sure_profile: n => 'Delete the profile "' + n + '" and all it holds: spaces, sign-ins, history and bookmarks?',
   sleep: ["Sleep tabs you aren't using", 'A resting tab lets its page go and comes back where you left it', 'memory discard suspend ram'],
   paces: {later: 'Later — after two hours', normal: 'Normal — after half an hour', sooner: 'Sooner — after ten minutes'},
   shield: ['Block ads and trackers', "Third parties whose only job is to watch, and YouTube's ads", 'adblock ad blocker ads youtube'],
@@ -46,7 +75,7 @@ find.placeholder = T.find;
 none.textContent = T.none;
 
 // Every line of Settings, written once: the page draws them and the find box filters them.
-const GROUPS = [['search', ['engine', 'custom_engine']], ['tabs', ['layout', 'close_goes_back']], ['memory', ['sleep']], ['blocking', ['shield']]];
+const GROUPS = [['search', ['engine', 'custom_engine']], ['tabs', ['layout', 'close_goes_back', 'split_view']], ['browsing', ['float_away', 'peek', 'peek_with']], ['memory', ['sleep']], ['blocking', ['shield']]];
 const rows = {};
 let prefs = {};
 
@@ -54,7 +83,7 @@ function control(key) {
   const set = value => ask('settings.set', {key, value}).then(show);
   // The only place for now: said plainly, nothing to switch.
   if (key === 'layout') return make('span', {id: key});
-  if (key === 'engine' || key === 'sleep') {
+  if (key === 'engine' || key === 'sleep' || key === 'peek_with') {
     const s = make('select', {id: key, onchange: () => set(s.value)});
     s.setAttribute('aria-label', T[key][0]);
     return s;
@@ -89,9 +118,9 @@ function filter() {
   for (const section of groups.children) {
     let shown = false;
     for (const row of section.querySelectorAll('.row')) {
-      const key = row.querySelector('[id]').id;
-      const applies = key !== 'custom_engine' || prefs.engine === 'custom';
-      row.hidden = !applies || !words.every(w => row.dataset.words.includes(w));
+      const el = row.querySelector('[id]'), key = el ? el.id : '';
+      const applies = (key !== 'custom_engine' || prefs.engine === 'custom') && (key !== 'peek_with' || prefs.peek);
+      row.hidden = !applies || !words.every(w => (row.dataset.words || '').includes(w));
       shown = shown || !row.hidden;
     }
     section.hidden = !shown;
@@ -108,12 +137,18 @@ function show(reply) {
     for (const e of reply.engines) engine.append(make('option', {value: e.id, textContent: e.id === 'custom' ? T.custom : e.name}));
     const sleep = document.getElementById('sleep');
     for (const pace in T.paces) sleep.append(make('option', {value: pace, textContent: T.paces[pace]}));
+    const clicks = document.getElementById('peek_with');
+    for (const click in T.clicks) clicks.append(make('option', {value: click, textContent: T.clicks[click]}));
   }
+  document.getElementById('float_away').checked = prefs.float_away;
+  document.getElementById('peek').checked = prefs.peek;
+  document.getElementById('peek_with').value = prefs.peek_with;
   engine.value = prefs.engine;
   document.getElementById('sleep').value = prefs.sleep;
   document.getElementById('custom_engine').value = prefs.custom_engine;
   document.getElementById('shield').checked = prefs.shield;
   document.getElementById('close_goes_back').checked = prefs.close_goes_back;
+  document.getElementById('split_view').checked = prefs.split_view;
   const custom = rows.custom_engine;
   const wrong = prefs.engine === 'custom' && !reply.custom_ok;
   custom.about.textContent = wrong ? T.wrong : custom.detail;
@@ -121,7 +156,80 @@ function show(reply) {
   filter();
 }
 
+// Spaces and profiles: drawn again from every answer, which is always the whole picture.
+const spacesBox = make('div', {className: 'box list'}), profilesBox = make('div', {className: 'box list'});
+groups.append(make('section', {id: 'spaces_t'}, [make('h2', {textContent: T.spaces_t}), spacesBox]));
+groups.append(make('section', {id: 'profiles_t'}, [make('h2', {textContent: T.profiles_t}), profilesBox]));
+const button = (text, onclick, disabled) => make('button', {textContent: text, onclick, disabled: !!disabled});
+function line(kids, words, id) {
+  const row = make('div', {className: 'row'}, kids);
+  row.dataset.words = words.toLowerCase();
+  if (id) row.id = id;
+  return row;
+}
+function toggle(key, on, op) {
+  const [name, detail, words] = T[key];
+  const c = make('input', {type: 'checkbox', className: 'switch', id: key, checked: on, onchange: () => ask(op, {key: op === 'spaces.set' ? key.replace('spaces_on', 'on') : key, value: c.checked}).then(drawSpaces)});
+  c.setAttribute('role', 'switch');
+  c.setAttribute('aria-label', name);
+  return line([make('label', {className: 'grow', htmlFor: key}, [make('div', {textContent: name}), make('div', {className: 'detail', textContent: detail})]), c], name + ' ' + detail + ' ' + words);
+}
+function nameField(value, placeholder, onchange) {
+  const i = make('input', {type: 'text', value, placeholder, spellcheck: false});
+  i.onchange = () => onchange(i.value.trim());
+  return i;
+}
+function drawSpaces(r) {
+  if (!r || !r.spaces) return;
+  const sp = r.spaces, words = (T.spaces_t + ' space espaço').toLowerCase();
+  const rows = [toggle('spaces_on', r.on, 'spaces.set'), toggle('sends_links', r.sends_links, 'spaces.set')];
+  const label = s => (r.profiles.length > 1 ? (r.profiles.find(p => p.id === s.profile) || {}).name + ' › ' : '') + s.name;
+  if (r.sends_links) {
+    for (const route of r.routes) rows.push(line([make('div', {className: 'grow', textContent: route.site + '  →  ' + (route.label || '?')}), button(T.remove, () => ask('spaces.unroute', {site: route.site}).then(drawSpaces))], words + ' ' + route.site));
+    const site = make('input', {type: 'text', placeholder: T.site, spellcheck: false});
+    const to = make('select', {}, sp.map(s => make('option', {value: s.id, textContent: label(s)})));
+    rows.push(line([make('div', {className: 'grow tools'}, [site, to]), button(T.add, () => ask('spaces.route', {site: site.value, space: to.value}).then(drawSpaces))], words + ' ' + T.sends_links[0]));
+  }
+  for (const s of sp) {
+    const mine = sp.filter(o => o.profile === s.profile), at = mine.indexOf(s);
+    const colour = make('select', {onchange: () => ask('spaces.colour', {space: s.id, colour: +colour.value}).then(drawSpaces)}, r.colours.map((c, i) => make('option', {value: i, textContent: c})));
+    colour.value = s.colour;
+    const icon = make('select', {onchange: () => ask('spaces.icon', {space: s.id, icon: icon.value}).then(drawSpaces)}, r.icons.map((c, i) => make('option', {value: c, textContent: r.icon_names[i]})));
+    icon.value = s.icon;
+    const dot = make('span', {className: 'dot', textContent: (s.name.match(/[\p{L}\p{N}]/u) || ['•'])[0].toUpperCase()});
+    const kept = s.first || s.home;
+    rows.push(line([dot, make('div', {className: 'grow tools'}, [
+      nameField(s.name, '', name => ask('spaces.rename', {space: s.id, name}).then(drawSpaces)), colour, icon,
+      make('span', {className: 'detail', textContent: s.id === r.current ? T.here : (r.profiles.length > 1 ? label(s).split(' › ')[0] : '')})]),
+      make('div', {className: 'tools'}, [
+        button('↑', () => ask('spaces.move', {space: s.id, to: at - 1}).then(drawSpaces), at === 0),
+        button('↓', () => ask('spaces.move', {space: s.id, to: at + 1}).then(drawSpaces), at === mine.length - 1),
+        button(T.open, () => ask('spaces.open', {space: s.id}).then(drawSpaces), !r.on || s.id === r.current || (s.profile !== r.profile && !(r.one_window && r.profiles.length > 1))),
+        button(T.del, () => confirm(T.sure_space(s.name)) && ask('spaces.delete', {space: s.id}).then(drawSpaces), kept)])], words + ' ' + s.name, 'space-' + s.id));
+  }
+  const name = make('input', {type: 'text', placeholder: T.space_name, spellcheck: false});
+  const own = make('input', {type: 'checkbox', checked: true});
+  rows.push(line([make('div', {className: 'grow tools'}, [name, make('label', {}, [own, ' ' + T.own])]), button(T.add, () => name.value.trim() && ask('spaces.add', {name: name.value, shares: !own.checked}).then(drawSpaces))], words + ' ' + T.add));
+  spacesBox.replaceChildren(...rows);
+
+  const pw = (T.profiles_t + ' profile perfil').toLowerCase();
+  const prows = [toggle('one_window', r.one_window, 'spaces.set')];
+  for (const p of r.profiles) {
+    prows.push(line([make('div', {className: 'grow tools'}, [
+      nameField(p.name, '', name => ask('profiles.rename', {profile: p.id, name}).then(drawSpaces)),
+      make('span', {className: 'detail', textContent: p.id === r.profile ? T.here : ''})]),
+      make('div', {className: 'tools'}, [
+        button(T.open, () => ask('profiles.open', {profile: p.id}).then(drawSpaces), p.id === r.profile),
+        button(T.del, () => confirm(T.sure_profile(p.name)) && ask('profiles.delete', {profile: p.id}).then(drawSpaces), p.personal)])], pw + ' ' + p.name, 'profile-' + p.id));
+  }
+  const pname = make('input', {type: 'text', placeholder: T.profile_name, spellcheck: false});
+  prows.push(line([make('div', {className: 'grow'}, [pname]), button(T.add, () => pname.value.trim() && ask('profiles.add', {name: pname.value}).then(drawSpaces))], pw + ' ' + T.add));
+  profilesBox.replaceChildren(...prows);
+  filter();
+}
+
 find.addEventListener('input', filter);
 ask('settings.get').then(show);
+ask('spaces.get').then(drawSpaces);
 </script>
 </body></html>

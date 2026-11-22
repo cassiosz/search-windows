@@ -54,3 +54,27 @@ same sheet (making one if the page started without). `searchwin_curtain::style_s
   or newlines before storing (they would break out of the one-rule-per-selector stylesheet), cap lengths
   (e.g. 500 chars), and always embed CSS in scripts through `style_script` (JSON literal), never by string concatenation.
 - Never forward these messages to a different origin or act on them from subframes you did not inject into.
+
+## float-on.js / float-off.js (Ctrl+Shift+P, `src/float.rs`)
+Injection: ExecuteScript on demand, in the tab's page, nothing at document start. `float-on.js` answers
+`"none"` (no video playing: nothing changes) or `{floating:true, w, h}` (the video's own size, for the
+little window's shape) after hiding everything but the biggest playing video and making it fill the
+viewport; the page is then re-parented into the floating window (ICoreWebView2Controller::put_ParentWindow).
+`float-off.js` puts the page back once it is laid out at the tab's size again (or after 400 ms / 1 s) and
+leaves any picture in picture of the engine's own. Neither posts anything.
+
+## Peek's listener (not a file: `src/peek.rs`, `start_script`)
+A document-start script, given only while Settings › Peek at links is on: a trusted Shift-click (or
+Alt-click) on an http(s) link in a website's top document posts `{op:"peek.open", url}`. The window hears it
+only from a document that was given the script, only from a tab in the row, only while Peek is on, and only
+for an http or https address.
+
+## forms.js (sign-in offers, `src/forms.rs`)
+Injection: a document-start script on every page (`AddScriptToExecuteOnDocumentCreated`, all frames); it
+returns at once on anything but http(s). It posts `forms.focus` (the caret's box: rect, name step),
+`forms.name` (a first step's name), `forms.sent` (a sign-in went out: the user name only) and `forms.settled`
+(the boxes went away in place). It never posts a password and never receives a saved one in a message: the
+app fills through `window.__officeForms.fill/name` (frozen, non-writable), which first checks the document's
+own scheme and host (with its port; the app re-checks both inline before calling it), and takes the password just sent through `__officeForms.take()` (once, within 10 s).
+The window hears these only from a document given the script, a frame only through the frame; a frame
+of another origin than the page (scheme, host, port) is offered nothing, and saving is heard from the top document alone.
