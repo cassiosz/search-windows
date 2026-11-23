@@ -659,6 +659,106 @@ fn reads_what_upstream_writes() {
     assert_eq!(load(&path), shape);
 }
 
+// A session.json as the Mac app writes it (JSONEncoder: escaped slashes,
+// Swift Dates, pinID and groupID on each tab, groups and splits).
+const MAC: &str = include_str!("../fixtures/mac-session.json");
+const TRIP: &str = "9A1B2C3D-4E5F-4A6B-8C7D-0E1F2A3B4C33";
+
+fn mac_shape() -> Shape {
+    serde_json::from_str(MAC).unwrap()
+}
+
+#[test]
+fn a_mac_session_reads_whole() {
+    let path = temp_path("mac");
+    std::fs::write(&path, MAC).unwrap();
+    let shape = load(&path);
+    assert!(path.exists(), "a Mac session must not be taken for corrupt");
+    assert_eq!(shape.tabs.len(), 7);
+    assert_eq!(shape.active, 5);
+    assert_eq!(shape.tabs[0].url, "https://mail.test/inbox");
+    // Swift Date (seconds since 2001) to unix ms; one without a time stays so.
+    assert_eq!(shape.tabs[0].touched, Some(1_763_307_200_500));
+    assert_eq!(shape.tabs[1].touched, Some(1_763_306_200_000));
+    assert_eq!(shape.tabs[3].touched, None);
+    assert!(shape.tabs[1].muted);
+    assert_eq!(shape.splits.len(), 1);
+}
+
+#[test]
+fn a_mac_sessions_pins_keep_their_ids_and_tabs_their_groups() {
+    let r = mac_shape().into_tabs(0);
+    let tabs: Vec<&Tab> = r.iter().collect();
+    assert_eq!(r.pinned_count(), 2);
+    assert_eq!(tabs[0].pin_letter.as_deref(), Some("M"));
+    assert_eq!(tabs[0].home.as_deref(), Some("https://mail.test/"));
+    assert_eq!(tabs[0].pin_id.as_deref(), Some("0B6F3C1E-7A2D-4C55-9E1A-3F0D2B8C4A11"));
+    assert_eq!(tabs[1].pin_id.as_deref(), Some("5D2A9E47-1B3C-4F6E-8A0D-7C9B1E2F3A22"));
+    let groups: Vec<Option<&str>> = tabs.iter().map(|t| t.group_id.as_deref()).collect();
+    assert_eq!(groups, [None, None, Some(TRIP), Some(TRIP), None, None, None]);
+    assert_eq!(r.selected().url.as_deref(), Some("https://notes.test/"));
+    assert_eq!(r.splits.len(), 1);
+}
+
+// Written back, the file still says which pin is which and which tabs are
+// in the group it keeps, as upstream reads them.
+#[test]
+fn a_mac_session_writes_back_its_pin_ids_and_groups() {
+    let shape = Shape::from_tabs(&mac_shape().into_tabs(0));
+    let path = temp_path("mac-back");
+    save(&path, &shape).unwrap();
+    let raw: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(raw["tabs"][0]["pinID"], "0B6F3C1E-7A2D-4C55-9E1A-3F0D2B8C4A11");
+    assert_eq!(raw["tabs"][2]["groupID"], TRIP);
+    assert!(raw["tabs"][0].get("groupID").is_none());
+    assert!(raw["tabs"][4].get("pinID").is_none());
+    assert_eq!(raw["groups"][0]["id"], TRIP);
+    assert_eq!(raw["tabs"][0]["touched"], 1_763_307_200_500u64);
+    assert_eq!(load(&path), shape);
+}
+
+// A hand-written file can't make a pin with a group or a loose tab with a
+// pin's id: upstream never writes either.
+#[test]
+fn a_pin_has_no_group_and_a_loose_tab_no_pin_id() {
+    let json = format!(
+        r#"{{"tabs":[{{"url":"https://a.test/","pin":"A","groupID":"{TRIP}","pinID":"P"}},
+        {{"url":"https://b.test/","pinID":"Q","groupID":"{TRIP}"}}],"active":0}}"#
+    );
+    let shape: Shape = serde_json::from_str(&json).unwrap();
+    let r = shape.into_tabs(0);
+    let tabs: Vec<&Tab> = r.iter().collect();
+    assert_eq!((tabs[0].pin_id.as_deref(), tabs[0].group_id.as_deref()), (Some("P"), None));
+    assert_eq!((tabs[1].pin_id.as_deref(), tabs[1].group_id.as_deref()), (None, Some(TRIP)));
+}
+
+// Browser.pin/unpin: pinning leaves the group, unpinning drops the pin's id.
+#[test]
+fn pinning_leaves_the_group_and_unpinning_drops_the_pin_id() {
+    let mut r = mac_shape().into_tabs(0);
+    let ids: Vec<u64> = r.iter().map(|t| t.id).collect();
+    r.unpin(ids[0]);
+    assert_eq!(r.get(ids[0]).unwrap().pin_id, None);
+    r.pin(ids[2]);
+    assert_eq!(r.get(ids[2]).unwrap().group_id, None);
+}
+
+// Session.fresh: the tabs of a group stay, with their group.
+#[test]
+fn a_fresh_start_keeps_a_groups_tabs_and_the_group() {
+    let fresh = mac_shape().fresh();
+    let urls: Vec<&str> = fresh.tabs.iter().map(|e| e.url.as_str()).collect();
+    assert_eq!(
+        urls,
+        ["https://mail.test/inbox", "https://cal.test/", "https://air.test/booking", "https://hotel.test/", "https://docs.test/"]
+    );
+    assert_eq!(fresh.groups.unwrap()[0]["name"], "Trip");
+    // No group left with a tab: none written.
+    let mut shape = mac_shape();
+    shape.tabs.retain(|e| e.group_id.is_none());
+    assert!(shape.fresh().groups.is_none());
+}
+
 // Session.read: no file is an empty session, and so is one that won't decode.
 #[test]
 fn a_missing_file_is_an_empty_session() {
