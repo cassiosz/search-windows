@@ -117,6 +117,8 @@ impl Tabs {
             && let Some(t) = self.get_mut(id)
         {
             t.asleep = true;
+            // Its page is gone, and its sound with it: the next page says when it plays.
+            t.audible = false;
         }
     }
 }

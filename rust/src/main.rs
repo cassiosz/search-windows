@@ -3147,6 +3147,7 @@ pub fn bench_state() -> serde_json::Value {
                     "url": t.url,
                     "pinned": t.pinned,
                     "asleep": t.asleep,
+                    "audible": t.audible,
                     "selected": t.id == tab.id,
                     "private": s.private.contains_key(&t.id),
                     "icon": favicon::has(&host_of(t.url.as_deref())),
@@ -3301,6 +3302,9 @@ pub fn page_event(id: page::TabId, event: page::Event) {
         }
         page::Event::Started => {
             state(|s| s.tabs.get_mut(id).map(|tab| tab.loading = true));
+        }
+        page::Event::Audible(playing) => {
+            state(|s| s.tabs.get_mut(id).map(|tab| tab.audible = playing));
         }
         page::Event::Title(title) => {
             state(|s| {
