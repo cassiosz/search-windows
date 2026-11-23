@@ -516,38 +516,64 @@ impl History {
             return None;
         }
         for option in options.iter().take(if single { 1 } else { options.len() }) {
-            for key in endings(option) {
-                if key.len() < typed.len() || !key.is_char_boundary(typed.len()) {
-                    continue;
-                }
+            for key in endings(&option.key) {
                 if single && key.contains(['/', '?', '#']) {
                     continue;
                 }
-                let (head, rest) = key.split_at(typed.len());
-                if !head.eq_ignore_ascii_case(typed) {
-                    continue;
+                if let Some(rest) = carries_on(typed, key) {
+                    return (!rest.is_empty()).then(|| rest.to_string());
                 }
-                // Only the host is case-blind: a path typed in another case is
-                // another page (upstream checks the identity of the result).
-                let path_at = head.find(['/', '?', '#']).unwrap_or(head.len());
-                if head[path_at..] != typed[path_at..] {
-                    continue;
-                }
-                return if rest.is_empty() { None } else { Some(rest.to_string()) };
             }
         }
         None
     }
 }
 
+/// The grey rest for `typed` from kept addresses (bookmarks), by the same
+/// prefix rule as history: the shortest address that carries on from it
+/// wins, so a front door beats a room inside it. Never from one letter: that
+/// finishes only a site you have been to.
+pub fn complete_from<'a>(typed: &str, urls: impl IntoIterator<Item = &'a str>) -> Option<String> {
+    if typed.chars().count() < 2 {
+        return None;
+    }
+    let mut best: Option<String> = None;
+    for url in urls {
+        let Some(url) = clean(url) else { continue };
+        let address = editable(&url);
+        for key in endings(&address) {
+            if let Some(rest) = carries_on(typed, key)
+                && best.as_ref().is_none_or(|b| rest.len() < b.len())
+            {
+                best = Some(rest.to_string());
+            }
+        }
+    }
+    best.filter(|rest| !rest.is_empty())
+}
+
+/// What is left of `key` after `typed`, if it carries on from it. Only the
+/// host is case-blind: a path typed in another case is another page
+/// (upstream checks the identity of the result).
+fn carries_on<'a>(typed: &str, key: &'a str) -> Option<&'a str> {
+    if key.len() < typed.len() || !key.is_char_boundary(typed.len()) {
+        return None;
+    }
+    let (head, rest) = key.split_at(typed.len());
+    if !head.eq_ignore_ascii_case(typed) {
+        return None;
+    }
+    let path_at = head.find(['/', '?', '#']).unwrap_or(head.len());
+    (head[path_at..] == typed[path_at..]).then_some(rest)
+}
 
 /// What a row can be finished as. Its address as shown; and for a www site,
 /// the name without the www, as the field always finished it: "app" still
 /// becomes apple.com, and the site sends you on to its www.
-fn endings(option: &Suggestion) -> Vec<&str> {
-    let mut found = vec![option.key.as_str()];
-    if option.key.len() > 4 && option.key[..4].eq_ignore_ascii_case("www.") {
-        found.push(&option.key[4..]);
+fn endings(key: &str) -> Vec<&str> {
+    let mut found = vec![key];
+    if key.len() > 4 && key[..4].eq_ignore_ascii_case("www.") {
+        found.push(&key[4..]);
     }
     found
 }

@@ -308,6 +308,23 @@ fn one_letter_finishes_only_a_front_door_you_have_been_to() {
 }
 
 #[test]
+fn it_finishes_an_address_from_bookmarks() {
+    let kept = ["https://www.example.test/docs/Guide", "https://example.test/", "http://plain.test/", "file:///C:/a.txt"];
+    let done = |typed| complete_from(typed, kept);
+    assert_eq!(done("exa").as_deref(), Some("mple.test")); // the front door beats the room
+    assert_eq!(done("EXA").as_deref(), Some("mple.test")); // host case-blind
+    assert_eq!(done("www.").as_deref(), Some("example.test/docs/Guide"));
+    assert_eq!(done("example.test/d").as_deref(), Some("ocs/Guide")); // www dropped as in history
+    assert_eq!(done("example.test/D"), None); // a path is as written
+    assert_eq!(done("example.test"), None); // nothing left
+    assert_eq!(done("e"), None); // one letter finishes only a site you have been to
+    assert_eq!(done("pl"), None); // http keeps its scheme in the field, as in history
+    assert_eq!(done("http://pl").as_deref(), Some("ain.test/"));
+    assert_eq!(done("C:"), None); // only web addresses
+    assert_eq!(complete_from("exa", []), None);
+}
+
+#[test]
 fn it_finishes_a_www_site_without_the_www() {
     // History.swift `endings`: "app" still becomes apple.com.
     let mut h = History::new();
