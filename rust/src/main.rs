@@ -2651,7 +2651,10 @@ fn complete_inline() {
     if start != length || end != length {
         return;
     }
-    let Some(rest) = state(|s| history(s).complete(&typed)).flatten() else { return };
+    // Where you have been first, then what you kept (#4).
+    let Some(rest) = state(|s| history(s).complete(&typed)).flatten().or_else(|| bookmarks::complete(&typed)) else {
+        return;
+    };
     set_field_text(&format!("{typed}{rest}"));
     unsafe {
         SendMessageW(field, EM_SETSEL, Some(WPARAM(length as usize)), Some(LPARAM(-1)));

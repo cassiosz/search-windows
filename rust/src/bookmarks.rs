@@ -111,6 +111,11 @@ pub fn places(typed: &str, limit: usize) -> (Vec<Place>, Vec<Place>) {
     })
 }
 
+/// The grey rest of a kept address for what is typed, when history has none.
+pub fn complete(typed: &str) -> Option<String> {
+    with(|b| searchwin_history::complete_from(typed, b.urls().iter().map(String::as_str)))
+}
+
 fn sites(nodes: &[Node], each: &mut impl FnMut(&str, &str)) {
     for node in nodes {
         match (&node.url, &node.children) {
