@@ -127,6 +127,7 @@ pub fn changed() {
     save();
     request_settle();
     crate::repaint_column();
+    crate::sync::poke();
 }
 
 /// Ctrl+Alt+1–9: the Nth space the window can reach. False with spaces off,

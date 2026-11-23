@@ -13,6 +13,16 @@ mod tests;
 pub use session::{Entry, Shape, load, save};
 pub use sleep::{SleepPace, WAIT_ON_PRESSURE_CRITICAL_MS, WAIT_ON_PRESSURE_WARNING_MS};
 
+/// A pin as sync sees it (upstream PinDef): what it is, not what it shows now.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PinDef {
+    pub id: String,
+    pub letter: String,
+    pub home: String,
+    pub title: String,
+    pub name: Option<String>,
+}
+
 /// How many closed tabs ⇧⌘T can go back through (Browser.swift `remember`:
 /// "Twelve steps back").
 const CLOSED_KEPT: usize = 12;
@@ -32,6 +42,9 @@ pub struct Tab {
     pub name: Option<String>,
     /// A pin's own page, the one it was pinned at (Session.Entry.home).
     pub home: Option<String>,
+    /// A pin's lasting id, the same on every PC sync reaches (PinDef.id).
+    /// Given by the app when it first needs one; None for any other tab.
+    pub pin_id: Option<String>,
     pub muted: bool,
     /// When it was last left, in the caller's clock (Tab.touched).
     pub last_active_ms: u64,
@@ -62,6 +75,7 @@ impl Tab {
             pin_letter: None,
             name: None,
             home: None,
+            pin_id: None,
             muted: false,
             last_active_ms: now,
             opener: None,
@@ -566,9 +580,79 @@ impl Tabs {
         tab.pinned = false;
         tab.pin_letter = None;
         tab.home = None;
+        tab.pin_id = None;
         let at = self.pinned_count();
         self.tabs.insert(at, tab);
         true
+    }
+
+    /// The row's pins as sync sees them, in order, each given an id first if
+    /// it has none (`new_id`). `skip` tabs (private ones) are left out. The
+    /// flag says an id was given, so the row is to be written.
+    pub fn pin_defs(&mut self, skip: &dyn Fn(u64) -> bool, new_id: &mut dyn FnMut() -> String) -> (Vec<PinDef>, bool) {
+        let mut given = false;
+        let mut out = Vec::new();
+        for tab in self.tabs.iter_mut().filter(|t| t.pinned && !skip(t.id)) {
+            let id = tab.pin_id.get_or_insert_with(|| {
+                given = true;
+                new_id()
+            });
+            out.push(PinDef {
+                id: id.clone(),
+                letter: tab.pin_letter.clone().unwrap_or_default(),
+                home: tab.home.clone().or_else(|| tab.url.clone()).unwrap_or_default(),
+                title: tab.title.clone(),
+                name: tab.name.clone(),
+            });
+        }
+        (out, given)
+    }
+
+    /// Makes the row's pins `defs`, in that order (Pins.adopt): one known by
+    /// its id takes the letter, page and name; a new one is added asleep at
+    /// its page; one not in `defs` is unpinned and stays as a tab, so nothing
+    /// open is closed under you. `skip` tabs and pins without an id are left
+    /// as they are, after the others. Returns whether anything changed.
+    pub fn adopt_pins(&mut self, defs: &[PinDef], skip: &dyn Fn(u64) -> bool) -> bool {
+        let before: Vec<Tab> = self.tabs.iter().filter(|t| t.pinned).cloned().collect();
+        let gone: Vec<u64> = self
+            .tabs
+            .iter()
+            .filter(|t| t.pinned && !skip(t.id) && t.pin_id.as_deref().is_some_and(|p| !defs.iter().any(|d| d.id == p)))
+            .map(|t| t.id)
+            .collect();
+        for id in gone {
+            self.unpin(id);
+        }
+        let mut pins = Vec::new();
+        for def in defs {
+            let at = self.tabs.iter().position(|t| t.pinned && !skip(t.id) && t.pin_id.as_deref() == Some(def.id.as_str()));
+            let mut tab = match at {
+                Some(at) => self.tabs.remove(at),
+                None => {
+                    let id = self.next_id;
+                    self.next_id += 1;
+                    let mut tab = Tab::blank(id, self.now);
+                    tab.url = Some(def.home.clone());
+                    tab.title = def.title.clone();
+                    tab.asleep = true;
+                    tab.pinned = true;
+                    tab.pin_id = Some(def.id.clone());
+                    tab
+                }
+            };
+            tab.pin_letter = Some(def.letter.clone());
+            tab.home = Some(def.home.clone());
+            tab.name = def.name.clone();
+            pins.push(tab);
+        }
+        // What wasn't the merge's to say (private, no id yet) stays, after.
+        let at = self.pinned_count();
+        let rest: Vec<Tab> = self.tabs.drain(..at).collect();
+        pins.extend(rest);
+        self.tabs.splice(0..0, pins);
+        let after: Vec<&Tab> = self.tabs.iter().filter(|t| t.pinned).collect();
+        after.len() != before.len() || after.iter().zip(&before).any(|(a, b)| *a != b)
     }
 
     /// Dragged from one place in the row to another. Pins stay first: a pin

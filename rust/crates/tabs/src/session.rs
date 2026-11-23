@@ -28,6 +28,9 @@ pub struct Entry {
     /// A pin's own page, the one it was pinned at.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub home: Option<String>,
+    /// A pin's lasting id, for sync (this port's own field).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pin_id: Option<String>,
     /// When you last left the tab, unix milliseconds. Upstream writes a
     /// Swift Date here; this file is this port's own, so it keeps it simple.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -68,6 +71,7 @@ impl Shape {
                 pin: t.pin_letter.clone().filter(|_| t.pinned),
                 name: t.name.clone(),
                 home: t.home.clone(),
+                pin_id: t.pin_id.clone().filter(|_| t.pinned),
                 touched: Some(t.last_active_ms),
                 muted: t.muted,
             })
@@ -93,6 +97,7 @@ impl Shape {
                     url,
                     title: e.title,
                     pinned: e.pin.is_some(),
+                    pin_id: e.pin_id.filter(|_| e.pin.is_some()),
                     pin_letter: e.pin,
                     name: e.name,
                     home: e.home,

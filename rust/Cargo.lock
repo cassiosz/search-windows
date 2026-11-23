@@ -192,6 +192,7 @@ dependencies = [
  "searchwin-shield",
  "searchwin-spaces",
  "searchwin-split",
+ "searchwin-sync",
  "searchwin-tabs",
  "searchwin-vault",
  "serde_json",
@@ -289,6 +290,19 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "searchwin-sync"
+version = "0.1.0"
+dependencies = [
+ "searchwin-bookmarks",
+ "searchwin-prefs",
+ "searchwin-spaces",
+ "searchwin-tabs",
+ "serde",
+ "serde_json",
+ "url",
 ]
 
 [[package]]

@@ -44,6 +44,9 @@ const T = pt ? {
   sleep: ['Pôr para dormir as abas sem uso', 'Uma aba em repouso solta a página e volta de onde você parou', 'memória dormir suspender ram'],
   paces: {later: 'Mais tarde — após duas horas', normal: 'Normal — após meia hora', sooner: 'Mais cedo — após dez minutos'},
   shield: ['Bloquear anúncios e rastreadores', 'Terceiros que só servem para vigiar, e os anúncios do YouTube', 'shield anúncios bloqueador rastreio youtube adblock'],
+  sync_t: 'Sincronizar',
+  sync_on: ['Sincronizar com seus outros PCs', 'Escolha uma pasta que seus PCs compartilham, no OneDrive ou no Dropbox, e ligue com a mesma pasta em cada PC. Vão junto espaços, favoritos e estes ajustes; nunca histórico, senhas, cookies nem abas abertas', 'sync sincronizar onedrive dropbox pasta outro pc'],
+  sync_none: 'nenhum outro PC ainda', sync_missing: 'a pasta não está lá', sync_unwritable: 'não dá para escrever nessa pasta', sync_unreadable: 'uma sessão está ocupada; tenta de novo em seguida', sync_now: 'Sincronizar agora',
 } : {
   title: 'Settings', find: 'Find a setting', none: 'No setting matches', custom: 'Custom',
   search: 'Searching', tabs: 'Tabs', memory: 'Memory', blocking: 'Blocking', browsing: 'Browsing',
@@ -67,6 +70,9 @@ const T = pt ? {
   sleep: ["Sleep tabs you aren't using", 'A resting tab lets its page go and comes back where you left it', 'memory discard suspend ram'],
   paces: {later: 'Later — after two hours', normal: 'Normal — after half an hour', sooner: 'Sooner — after ten minutes'},
   shield: ['Block ads and trackers', "Third parties whose only job is to watch, and YouTube's ads", 'adblock ad blocker ads youtube'],
+  sync_t: 'Sync',
+  sync_on: ['Sync with your other PCs', 'Choose a folder your PCs share, in OneDrive or Dropbox, and turn this on with the same folder on each PC. Spaces, bookmarks and these settings follow you; never history, passwords, cookies or open tabs', 'sync onedrive dropbox folder other pc'],
+  sync_none: 'no other PC yet', sync_missing: "the folder isn't there", sync_unwritable: "can't write in that folder", sync_unreadable: 'a session file is busy; trying again shortly', sync_now: 'Sync now',
 };
 const title = $("title"), find = $("find"), none = $("none"), groups = $("groups");
 document.title = T.title;
@@ -228,8 +234,30 @@ function drawSpaces(r) {
   filter();
 }
 
+// Sync: off until a folder is chosen. Turning it on asks for the folder.
+const syncBox = make('div', {className: 'box'});
+groups.append(make('section', {id: 'sync_t'}, [make('h2', {textContent: T.sync_t}), syncBox]));
+function drawSync(r) {
+  if (!r || r.on === undefined) return;
+  const [name, detail, words] = T.sync_on;
+  const c = make('input', {type: 'checkbox', className: 'switch', id: 'sync_on', checked: r.on,
+    onchange: () => ask(c.checked ? 'sync.on' : 'sync.off').then(drawSync)});
+  c.setAttribute('role', 'switch');
+  c.setAttribute('aria-label', name);
+  const status = r.problem ? T['sync_' + r.problem] || r.problem
+    : r.last ? (r.others.length ? r.others.join(', ') : T.sync_none) + ' · ' + new Date(r.last * 1000).toLocaleTimeString() : '';
+  const about = make('div', {className: 'detail', textContent: r.on ? r.folder + (status ? ' · ' + status : '') : detail});
+  about.classList.toggle('wrong', !!r.problem);
+  const kids = [make('label', {className: 'grow', htmlFor: 'sync_on'}, [make('div', {textContent: name}), about])];
+  if (r.on) kids.push(button(T.sync_now, () => ask('sync.now').then(drawSync)));
+  kids.push(c);
+  syncBox.replaceChildren(line(kids, name + ' ' + detail + ' ' + words));
+  filter();
+}
+
 find.addEventListener('input', filter);
 ask('settings.get').then(show);
 ask('spaces.get').then(drawSpaces);
+ask('sync.get').then(drawSync);
 </script>
 </body></html>

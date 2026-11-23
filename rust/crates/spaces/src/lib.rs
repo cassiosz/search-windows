@@ -743,6 +743,33 @@ impl Spaces {
         Some(removal)
     }
 
+    /// A profile's spaces as sync merged them, in that order: the ones not
+    /// in `list` deleted as Delete Space does (never the home), the others
+    /// taken as they are. An id another profile has is left out.
+    pub fn adopt(&mut self, profile: &str, list: Vec<Space>) -> Vec<Removal> {
+        let wanted: Vec<String> = list.iter().map(|s| s.id.trim().to_uppercase()).collect();
+        let gone: Vec<String> = self.of_profile(profile).filter(|s| !wanted.contains(&s.id)).map(|s| s.id.clone()).collect();
+        let removals = gone.iter().filter_map(|id| self.delete_space(id)).collect();
+        let kept: Vec<Space> = self.of_profile(profile).filter(|s| !wanted.contains(&s.id)).cloned().collect();
+        let at = self.spaces.iter().position(|s| s.profile_id() == profile).unwrap_or(self.spaces.len());
+        self.spaces.retain(|s| s.profile_id() != profile);
+        let owner = (profile != PERSONAL_ID).then(|| profile.to_string());
+        let mut mine: Vec<Space> = Vec::new();
+        for mut s in list {
+            s.id = s.id.trim().to_uppercase();
+            s.profile = owner.clone();
+            // The first space is Personal's alone; an id in use elsewhere is someone else's.
+            let free = !s.id.is_empty() && !self.spaces.iter().chain(&mine).any(|t| t.id == s.id);
+            if free && (!s.is_first() || owner.is_none()) {
+                mine.push(s);
+            }
+        }
+        // What couldn't be deleted (the home) stays, at the end.
+        mine.extend(kept);
+        self.spaces.splice(at..at, mine);
+        removals
+    }
+
     // ---- profiles ----
 
     /// A new profile and its home space, which shares the profile's own
@@ -882,7 +909,7 @@ impl Spaces {
     }
 }
 
-fn random_uuid() -> String {
+pub fn random_uuid() -> String {
     use std::hash::BuildHasher;
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNT: AtomicU64 = AtomicU64::new(0);
