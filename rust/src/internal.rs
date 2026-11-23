@@ -74,6 +74,9 @@ pub fn set_pref(key: &str, value: Value) -> Result<(), String> {
     if key == "peek" || key == "peek_with" {
         crate::page::refresh_peek();
     }
+    if key == "extensions" {
+        crate::extensions::switched();
+    }
     crate::sync::poke();
     Ok(())
 }
@@ -125,6 +128,11 @@ pub fn message(tab: crate::page::TabId, source: &str, json: &str) -> Option<Stri
         },
         op if op.starts_with("import.") => match from.as_str() {
             "import" => crate::import::message(tab, op, &asked),
+            _ => return None,
+        },
+        // Adding one runs what it brings in every page: only Settings asks.
+        op if op.starts_with("extensions.") => match from.as_str() {
+            "settings" => crate::extensions::message(op, &asked),
             _ => return None,
         },
         "settings.get" => settings(None),
@@ -229,6 +237,9 @@ mod tests {
             "sync.on",
             "sync.off",
             "sync.now",
+            "extensions.get",
+            "extensions.add",
+            "extensions.remove",
         ] {
             let asked = json!({ "op": op, "id": 1, "row": 1, "node": "x", "from": "chrome", "host": "a.com", "user": "u" }).to_string();
             assert_eq!(message(1, "https://example.com/", &asked), None);
@@ -245,6 +256,11 @@ mod tests {
         }
         assert_eq!(message(1, "search://passwords", r#"{"op":"import.run","id":1}"#), None);
         assert_eq!(message(1, "search://history", r#"{"op":"sync.off","id":1}"#), None);
+        for op in ["extensions.get", "extensions.add", "extensions.set", "extensions.remove"] {
+            let asked = json!({ "op": op, "id": 1, "dir": "1" }).to_string();
+            assert_eq!(message(1, "search://history", &asked), None, "{op}");
+            assert_eq!(message(1, "search://import", &asked), None, "{op}");
+        }
         assert!(page("search://passwords").is_some() && page("search://import").is_some());
     }
 }

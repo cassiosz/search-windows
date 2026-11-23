@@ -136,6 +136,10 @@ pub fn warm(window: HWND) {
     let options = CoreWebView2EnvironmentOptions::default();
     // Nothing leaves the PC but the pages asked for: no SmartScreen lookups.
     unsafe { options.set_additional_browser_arguments("--disable-features=msSmartScreenProtection".to_string()) };
+    // Fixed for the engine's life: asked for only with an extension to run.
+    if crate::extensions::start() {
+        unsafe { options.set_are_browser_extensions_enabled(true) };
+    }
     // search://settings and the like: a secure origin of their own, with a
     // host (settings, history), that no other origin may fetch from.
     let scheme = CoreWebView2CustomSchemeRegistration::new(crate::omnibox::INTERNAL_SCHEME.to_string());
@@ -409,6 +413,15 @@ fn configure(id: TabId, epoch: u64, controller: ICoreWebView2Controller) -> Resu
                 &mut token,
             )?;
         }
+        // window.close(): heard only from an extension's popup (crate::extensions).
+        let k = key.clone();
+        view.add_WindowCloseRequested(
+            &WindowCloseRequestedEventHandler::create(Box::new(move |_, _| {
+                crate::extensions::close_requested(k.get());
+                Ok(())
+            })),
+            &mut token,
+        )?;
         let k = key.clone();
         view.add_HistoryChanged(
             &HistoryChangedEventHandler::create(Box::new(move |_, _| {
@@ -484,7 +497,8 @@ fn configure(id: TabId, epoch: u64, controller: ICoreWebView2Controller) -> Resu
                         let mut key = 0u32;
                         args.VirtualKey(&mut key)?;
                         let escape = key == u32::from(windows::Win32::UI::Input::KeyboardAndMouse::VK_ESCAPE.0);
-                        if (escape && crate::float::escape(k.get())) || crate::shortcut(key) {
+                        let id = k.get();
+                        if (escape && (crate::float::escape(id) || crate::extensions::close_requested(id))) || crate::shortcut(key) {
                             args.SetHandled(true)?;
                         }
                     }
@@ -525,6 +539,8 @@ fn configure(id: TabId, epoch: u64, controller: ICoreWebView2Controller) -> Resu
                 controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC)?;
             }
         }
+        // After the page is asked for: the profile's extensions are never in its way.
+        crate::extensions::sync(&view);
     }
     Ok(())
 }
@@ -1228,6 +1244,20 @@ pub fn focus() {
             let _ = controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
         }
     }
+}
+
+/// The keys go to page `id` (one out of the card, in a window of its own).
+pub fn focus_page(id: TabId) {
+    if let Some(controller) = with(|p| p.views.get(&id).and_then(|v| v.controller.clone())) {
+        unsafe {
+            let _ = controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+        }
+    }
+}
+
+/// Every page there is now.
+pub fn views() -> Vec<ICoreWebView2> {
+    with(|p| p.views.values().filter_map(|v| v.view.clone()).collect())
 }
 
 /// Minimized, the pages stop drawing and give their timers a rest.

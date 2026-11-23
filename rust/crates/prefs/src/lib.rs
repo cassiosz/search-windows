@@ -194,6 +194,9 @@ pub struct Prefs {
     /// A modified click on a link opens it in a panel over the page. Off until turned on.
     pub peek: bool,
     pub peek_with: PeekWith,
+    /// Chrome extensions (crate::extensions). Off until turned on; on with
+    /// none added still costs nothing.
+    pub extensions: bool,
 }
 
 impl Default for Prefs {
@@ -210,6 +213,7 @@ impl Default for Prefs {
             float_away: false,
             peek: false,
             peek_with: PeekWith::default(),
+            extensions: false,
         }
     }
 }
@@ -264,6 +268,7 @@ impl Prefs {
         fields.insert("float_away".into(), self.float_away.into());
         fields.insert("peek".into(), self.peek.into());
         fields.insert("peek_with".into(), self.peek_with.key().into());
+        fields.insert("extensions".into(), self.extensions.into());
         Value::Object(fields)
     }
 
@@ -285,6 +290,7 @@ impl Prefs {
             "float_away" => self.float_away = on.ok_or_else(wrong)?,
             "peek" => self.peek = on.ok_or_else(wrong)?,
             "peek_with" => self.peek_with = text.and_then(PeekWith::from_key).ok_or_else(wrong)?,
+            "extensions" => self.extensions = on.ok_or_else(wrong)?,
             _ => return Err(format!("no setting called {key}")),
         }
         Ok(())
@@ -337,6 +343,7 @@ mod tests {
             float_away: true,
             peek: true,
             peek_with: PeekWith::Alt,
+            extensions: true,
         };
         prefs.save(&path).unwrap();
         assert_eq!(Prefs::load(&path), prefs);
@@ -361,7 +368,7 @@ mod tests {
         let value = Prefs { engine: Engine::DuckDuckGo, ..Prefs::default() }.to_value();
         assert_eq!(
             value,
-            json!({ "engine": "duckduckgo", "custom_engine": "", "shield": true, "sleep": "normal", "tabs": "left", "close_goes_back": false, "reader_look": "system", "split_view": false, "float_away": false, "peek": false, "peek_with": "shift" })
+            json!({ "engine": "duckduckgo", "custom_engine": "", "shield": true, "sleep": "normal", "tabs": "left", "close_goes_back": false, "reader_look": "system", "split_view": false, "float_away": false, "peek": false, "peek_with": "shift", "extensions": false })
         );
     }
 
