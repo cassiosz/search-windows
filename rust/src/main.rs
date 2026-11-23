@@ -2284,6 +2284,10 @@ pub fn shortcut_with(key: u32, ctrl: bool, alt: bool, shift: bool) -> bool {
     let command = ctrl && !alt;
     let both = ctrl && alt && !shift;
     let digit = (u16::from(b'1')..=u16::from(b'9')).contains(&key);
+    if !ctrl && !alt && (key == VK_ESCAPE.0 || key == VK_RETURN.0) && bookmarks::card_key(key == VK_RETURN.0) {
+        // The bookmark's card has the keys: Enter and Esc are its, never the page's.
+        return true;
+    }
     if both && digit {
         // Spaces (upstream's ⌃1–9); with them off, the keys are the page's.
         return spaces::select_number(usize::from(key - u16::from(b'0')));
@@ -2840,12 +2844,22 @@ pub fn is_dark() -> bool {
 /// The window's colours and fonts, for the windows of ours beside it (a peek's strip).
 pub struct Look {
     palette: Palette,
+    font: HFONT,
+    small_font: HFONT,
     crumb_font: HFONT,
     glyphs: HFONT,
+    caption_glyphs: HFONT,
 }
 
 pub fn look() -> Option<Look> {
-    state(|s| Look { palette: s.palette, crumb_font: s.crumb_font, glyphs: s.glyphs })
+    state(|s| Look {
+        palette: s.palette,
+        font: s.font,
+        small_font: s.small_font,
+        crumb_font: s.crumb_font,
+        glyphs: s.glyphs,
+        caption_glyphs: s.caption_glyphs,
+    })
 }
 
 /// The card, where the page is, on the screen.
@@ -3187,6 +3201,7 @@ pub fn bench_state() -> serde_json::Value {
     value["downloading"] = serde_json::json!(downloads::active());
     value["float"] = float::bench();
     value["peek"] = peek::bench();
+    value["bookmark_card"] = bookmarks::card_bench();
     value["forms"] = forms::bench();
     value["passwords"] = passwords::bench();
     value["import"] = import::bench();

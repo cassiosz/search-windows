@@ -129,7 +129,6 @@ function tree(nodes, parent, box) {
 
 function show(reply) {
   folders = reply.folders || [];
-  if (reply.edit) { editing = reply.edit; find.value = ''; }
   list.replaceChildren();
   const box = make('div', {className: 'box'});
   if (reply.found) {

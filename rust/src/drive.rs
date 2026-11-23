@@ -65,6 +65,11 @@ fn handle(window: HWND, request: Request, reply: Reply) {
             let handled = crate::forms::bench_act(&keys["forms:".len()..]);
             reply.complete(Response::ok(json!({ "handled": handled })));
         }
+        // The bookmark's card, by name ("card:name Docs", "card:folder 0", "card:done").
+        Request::Key { keys } if keys.starts_with("card:") => {
+            let handled = crate::bookmarks::card_act(&keys["card:".len()..]);
+            reply.complete(Response::ok(json!({ "handled": handled })));
+        }
         Request::Key { keys } => match parse_keys(&keys) {
             Some((key, ctrl, alt, shift)) => {
                 let handled = crate::shortcut_with(key, ctrl, alt, shift) || crate::field_key(key, ctrl, alt, shift);
