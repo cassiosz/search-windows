@@ -72,7 +72,7 @@ impl Node {
 }
 
 /// An address as a list reads it: no scheme, no `www.`, no lone trailing `/`.
-fn pretty(url: &str) -> String {
+pub fn pretty(url: &str) -> String {
     let s = url.split_once("://").map_or(url, |(_, rest)| rest);
     let s = s.strip_prefix("www.").unwrap_or(s);
     s.strip_suffix('/').unwrap_or(s).to_string()
@@ -394,6 +394,16 @@ impl Bookmarks {
         self.roots = roots;
         self.rebuild();
         id
+    }
+
+    /// The card's "New folder…": a folder at the top level with `id` moved
+    /// into it. Returns the folder's id; None, and no folder made, when `id`
+    /// isn't here.
+    pub fn file_in_new_folder(&mut self, id: &str, title: &str) -> Option<String> {
+        self.get(id)?;
+        let made = self.add_folder(None, title);
+        self.move_to(id, Some(&made), None);
+        Some(made)
     }
 
     /// A site, or a folder with everything in it.

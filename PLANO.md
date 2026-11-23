@@ -88,7 +88,10 @@ Pendências (pequenas):
 - Mouse na coluna (clique, ×, clique do meio, rolagem) e "abrir arquivo" /
   "mostrar na pasta" dos downloads: sem teste automático — testar à mão.
 - Aba tocando áudio ainda não impede o sono.
-- 1º Ctrl+Shift+B só adiciona (upstream abre um cartão para renomear).
+- ~~1º Ctrl+Shift+B só adiciona~~: agora abre o cartão do favorito (nome,
+  pasta, nova pasta, Remover, OK; Esc/Enter/clique fora fecham), como no
+  upstream (#3). +14 KB de exe; nada é criado até o primeiro Ctrl+Shift+B.
+  Menu de pasta, hover, sombra e tema do cartão: testar à mão.
 - Completar endereço em cinza ainda não completa para favoritos.
 - Sessão do Mac: `pinID`/`groupID` por aba não são lidos.
 

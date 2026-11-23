@@ -252,3 +252,17 @@ fn not_a_chrome_file_is_none() {
     assert!(from_chrome(b"{\"a\":1}").is_none());
     assert_eq!(from_chrome(b"{\"roots\":{}}").unwrap().len(), 0);
 }
+
+#[test]
+fn the_cards_new_folder_files_the_site_in_it() {
+    let (mut b, a, _, _) = sample();
+    let made = b.file_in_new_folder(&a, "Later").unwrap();
+    assert_eq!(b.parent_of(&a), Some(made.clone()));
+    assert_eq!(b.get(&made).unwrap().title, "Later");
+    assert_eq!(b.roots().last().unwrap().id, made, "at the top level, at the end");
+    let unnamed = b.file_in_new_folder(&a, "  ").unwrap();
+    assert_eq!(b.get(&unnamed).unwrap().title, "Folder");
+    let folders = b.folders().len();
+    assert_eq!(b.file_in_new_folder("missing", "X"), None);
+    assert_eq!(b.folders().len(), folders, "no folder left behind for a site that isn't here");
+}
