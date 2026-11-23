@@ -261,7 +261,8 @@ function drawSync(r) {
   if (r.on) kids.push(button(T.sync_now, () => ask('sync.now').then(drawSync)));
   kids.push(c);
   syncBox.replaceChildren(line(kids, name + ' ' + detail + ' ' + words));
-}\n// Extensions: under their switch, only while it is on. Each answer is the whole list.
+}
+// Extensions: under their switch, only while it is on. Each answer is the whole list.
 const extBox = document.querySelector('#extensions_t .box');
 let extRows = [];
 function drawExtensions(r) {
