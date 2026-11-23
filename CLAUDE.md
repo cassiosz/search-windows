@@ -123,6 +123,8 @@ Use as skills instaladas sempre que a tarefa se encaixar nelas:
   - `ecc:code-review` antes de commit.
 - **impeccable:** acabamento de interface (coluna, menus, páginas
   `search://`) e movimento.
+  - O sistema visual (cores, tipos, medidas, regras) está no
+    [DESIGN.md](DESIGN.md); a referência do Mac fica no fim dele.
   - Use o agente `impeccable-motion-reviewer` para revisar animações.
   - Vale só o que seguir as regras de animação acima.
 - **omc:** `execute`, `verify` e `team` para trabalho em várias etapas. A

@@ -1,4 +1,305 @@
-# Design do Search (macOS) — referência para o port
+---
+name: SearchWin
+description: Port para Windows do Search — um campo, as abas e a página como um cartão.
+colors:
+  column-light: "#DDE3EA"
+  column-dark: "#1E1F22"
+  card-light: "#FFFFFF"
+  card-dark: "#282A2E"
+  pill-light: "#FFFFFF"
+  pill-dark: "#383A40"
+  tile-light: "#EEF1F4"
+  tile-dark: "#292B2F"
+  field-light: "#F0F3F7"
+  field-dark: "#34363B"
+  hairline-light: "#C5CAD1"
+  hairline-dark: "#3E3F42"
+  pill-shadow-light: "#CBD0D7"
+  pill-shadow-dark: "#141517"
+  ink-light: "#181A1E"
+  ink-dark: "#ECEDF0"
+  dim-light: "#3F4246"
+  dim-dark: "#C2C3C6"
+  faint-light: "#5C6065"
+  faint-dark: "#A3A4A7"
+  hover-light: "#D1D6DD"
+  hover-dark: "#2B2C31"
+  bar-hover-light: "#ECECED"
+  bar-hover-dark: "#37393D"
+  accent-light: "#0067C0"
+  accent-dark: "#4CC2FF"
+typography:
+  body:
+    fontFamily: "Segoe UI Variable Text, Segoe UI, system-ui, sans-serif"
+    fontSize: "15px"
+    fontWeight: 400
+  crumb:
+    fontFamily: "Segoe UI Variable Text, Segoe UI, system-ui, sans-serif"
+    fontSize: "14px"
+    fontWeight: 400
+  label:
+    fontFamily: "Segoe UI Variable Text, Segoe UI, system-ui, sans-serif"
+    fontSize: "11px"
+    fontWeight: 400
+  page-title:
+    fontFamily: "Segoe UI Variable Display, Segoe UI, system-ui, sans-serif"
+    fontSize: "24px"
+    fontWeight: 600
+    lineHeight: 1.2
+  page-body:
+    fontFamily: "Segoe UI Variable Text, Segoe UI, system-ui, sans-serif"
+    fontSize: "14px"
+    fontWeight: 400
+    lineHeight: 1.4
+  mono:
+    fontFamily: "Consolas, ui-monospace, monospace"
+    fontSize: "14px"
+    fontWeight: 400
+  page-group:
+    fontFamily: "Segoe UI Variable Text, Segoe UI, system-ui, sans-serif"
+    fontSize: "12px"
+    fontWeight: 600
+rounded:
+  md: "8px"
+spacing:
+  side: "10px"
+  gap: "8px"
+  field-pad: "10px"
+components:
+  tab-active:
+    backgroundColor: "{colors.pill-light}"
+    textColor: "{colors.ink-light}"
+    rounded: "{rounded.md}"
+    height: "44px"
+  tab-idle:
+    textColor: "{colors.dim-light}"
+    height: "44px"
+  tab-asleep:
+    textColor: "{colors.faint-light}"
+    height: "44px"
+  pin-tile:
+    backgroundColor: "{colors.tile-light}"
+    rounded: "{rounded.md}"
+    height: "52px"
+  address-field:
+    backgroundColor: "{colors.field-light}"
+    textColor: "{colors.ink-light}"
+    rounded: "{rounded.md}"
+    height: "32px"
+    padding: "0 10px"
+  suggestion-row:
+    textColor: "{colors.ink-light}"
+    height: "48px"
+  nav-button:
+    textColor: "{colors.ink-light}"
+    size: "36px"
+  caption-button:
+    textColor: "{colors.ink-light}"
+    width: "46px"
+    height: "44px"
+  page-button:
+    backgroundColor: "{colors.field-light}"
+    textColor: "{colors.ink-light}"
+    rounded: "{rounded.md}"
+    padding: "5px 12px"
+---
+
+# Design System: SearchWin
+
+Este arquivo junta duas coisas:
+
+1. **O sistema do port Windows** (seções canônicas abaixo). Os valores vêm do
+   código que roda hoje: `rust/src/main.rs` (`Palette`, constantes de layout) e
+   `rust/assets/pages/common.css`. Quando o código mudar, este arquivo muda
+   junto. O frontmatter é a fonte normativa.
+2. **A referência do Search para macOS** (última seção). É o antigo
+   `design.md`, mantido inteiro. Ela é o alvo de comportamento e de movimento,
+   mas não manda nos valores do Windows.
+
+Os nomes dos tokens com sufixo `-light`/`-dark` formam pares. Os componentes do
+frontmatter citam o lado claro; o escuro troca pelo par correspondente.
+
+## Overview
+
+**Creative North Star: "A página é o chão"**
+
+O navegador quase não desenha nada. A coluna das abas é um tom calmo e frio
+(um cinza com um respiro de azul no claro, quase preto no escuro), e a página
+fica ao lado como um cartão um passo mais claro. Tudo que é do app recua para a
+página aparecer.
+
+A densidade é baixa e o ritmo é regular: linhas de 44 px, recuo de 10 px,
+espaço de 8 px, um único raio de 8 px. A interface é desenhada à mão em GDI,
+com fontes e ícones do próprio Windows (Segoe UI Variable, Segoe Fluent Icons).
+Por isso parece nativa sem usar nenhum controle padrão além do campo de texto.
+
+O movimento faz parte da identidade, mas nunca atrasa a primeira página nem
+pesa na memória. Ver "Movimento" em Components.
+
+**Key Characteristics:**
+- Coluna de abas de altura total, tingida; página como cartão.
+- Um raio só (8 px) e bordas de 1 px.
+- Cor de destaque só para foco e para a página ativa no Split View.
+- Botões de janela próprios, do tamanho dos do Windows, com Snap Layouts.
+- Tema claro e escuro seguindo o sistema; menus seguem o tema.
+
+## Colors
+
+Cinzas frios em pares claro/escuro, com um único azul de destaque, o do
+Windows.
+
+### Primary
+- **Azul do Windows** (`accent-light` / `accent-dark`): contorno de foco
+  (2 px) nas páginas internas e o contorno da página ativa quando há duas ou
+  mais lado a lado. Nada mais.
+
+### Neutral
+- **Coluna** (`column-*`): o fundo da coluna das abas e da faixa superior. É
+  tingida pela cor do Space quando os Spaces estão ligados.
+- **Cartão** (`card-*`): a página e a barra acima dela.
+- **Pílula** (`pill-*`): a aba da frente, levantada da coluna por uma sombra de
+  1 px (`pill-shadow-*`).
+- **Ladrilho** (`tile-*`): os pins, um degrau acima da coluna.
+- **Campo** (`field-*`): a caixa do endereço quando aberta.
+- **Linha fina** (`hairline-*`): bordas das pílulas, ladrilhos, campo e da
+  borda da coluna.
+- **Tinta** (`ink-*`): texto principal e ícones.
+- **Apagado** (`dim-*`): abas que não estão na frente.
+- **Quieto** (`faint-*`): abas dormindo e a linha "nova aba".
+- **Sob o ponteiro** (`hover-*` na coluna, `bar-hover-*` na barra).
+
+### Named Rules
+**A Regra da Coluna Calma.** A coluna nunca compete com a página: todas as
+cores dela são misturas da própria coluna com a tinta, nunca cores novas.
+
+**A Regra do Contraste.** Apagado e quieto ficam acima de 4,5:1 sobre a coluna,
+e um teste em `main.rs` garante isso. Qualquer cor nova de texto na coluna
+passa pelo mesmo teste.
+
+## Typography
+
+**Fonte da interface:** Segoe UI Variable Text (com Segoe UI)
+**Títulos das páginas internas:** Segoe UI Variable Display
+**Ícones:** Segoe Fluent Icons (Segoe MDL2 Assets antes do Windows 11), glifo
+de 16 px e de 10 px nos botões da janela.
+
+**Character:** a fonte do sistema e nada mais. O app soa como o Windows, não
+como uma marca.
+
+### Hierarchy
+- **Body** (400, 15 px): título das abas, campo de endereço, sugestões.
+- **Crumb** (400, 14 px): "site / título" na barra. É um rótulo, não uma
+  lista, por isso é um passo menor.
+- **Label** (400, 11 px): a segunda linha das sugestões e legendas.
+- **Página: título** (600, 24 px / 1.2): o `h1` das páginas `search://`.
+- **Página: corpo** (400, 14 px / 1.4).
+- **Página: grupo** (600, 12 px, cor apagada): o cabeçalho de cada grupo.
+- **Mono** (Consolas, 14 px): só onde cada caractere conta: a senha revelada
+  em `search://passwords` e o código no modo leitura (`l`/`1`, `O`/`0`).
+
+## Layout
+
+- **Janela:** coluna de 250 px à esquerda, de altura total. A página ocupa o
+  resto como cartão.
+- **Barra:** 44 px acima da página. A faixa superior da coluna tem a mesma
+  altura, para as duas linhas se alinharem. Nela ficam voltar/avançar/
+  recarregar (quadrados de 36 px), o "site / título" e, à direita, os botões
+  da janela (46 × 44 px).
+- **Campo de endereço:** 32 px de altura, até 680 px de largura (mais largo
+  que isso o endereço fica difícil de ler). A lista de sugestões é uma janela
+  própria embaixo dele, com linhas de 48 px (título + endereço).
+- **Coluna, de cima para baixo:** pins (ladrilhos de 52 px, três por linha,
+  espaço de 8 px), abas (linhas de 44 px), "nova aba" e, no pé, os chips dos
+  Spaces (26 px, espaço de 4 px).
+- **Ritmo:** recuo de 10 px nas bordas da coluna, espaço de 8 px entre blocos,
+  10 px dentro do campo.
+- **Páginas internas:** coluna central de no máximo 680 px, padding de
+  28/24/48 px.
+- Tudo é escalado pelo DPI do monitor; os valores acima são em pixels
+  independentes de DPI.
+
+## Elevation & Depth
+
+Plano por padrão, com profundidade por camadas de tom: coluna → ladrilho →
+pílula/cartão, cada degrau um pouco mais claro (no escuro) ou mais branco (no
+claro). A única sombra é a da pílula da aba ativa, uma linha de 1 px em
+`pill-shadow-*` logo abaixo dela.
+
+### Named Rules
+**A Regra do Degrau.** A profundidade vem do tom, não da sombra. Se algo
+precisa subir, ele ganha um tom acima, não uma sombra maior.
+
+## Shapes
+
+Um raio só: 8 px, em pílulas, ladrilhos, campo, caixas e botões das páginas
+internas. Bordas sempre de 1 px na linha fina. Os botões da janela são
+retângulos retos, como os do Windows.
+
+## Components
+
+### Aba
+- **Na frente:** pílula (`pill-*`) com raio de 8 px, linha fina e a sombra de
+  1 px; texto em tinta.
+- **Atrás:** sem fundo, texto apagado. **Dormindo:** texto quieto.
+- **Sob o ponteiro:** fundo `hover-*` e um "×" à direita.
+- Favicon de 16 px ou a marca do site, quando não há favicon.
+- Clique direito abre o menu de fixar, desafixar e fechar, no tema do app.
+
+### Pin
+- Ladrilho de 52 px (`tile-*`), três por linha, ícone de 20 px no centro.
+
+### Campo de endereço e sugestões
+- Fechado, a barra mostra "site / título". Um clique ou Ctrl+L transforma isso
+  no campo (`field-*`, linha fina, raio de 8 px).
+- O completar em cinza escreve o resto do endereço já selecionado.
+- As sugestões são linhas de duas camadas (título em 15 px, endereço em
+  11 px), numa janela própria que não empurra a página.
+
+### Botões
+- **Barra e janela:** glifos do Segoe Fluent, sem fundo em repouso e com
+  `bar-hover-*` sob o ponteiro.
+- **Páginas internas:** fundo `field`, linha fina, raio de 8 px, padding de
+  5 × 12 px; sob o ponteiro o fundo vira a cor da borda. O foco ganha um
+  contorno de 2 px no azul de destaque.
+
+### Caixas das páginas internas
+- `.box`: linha fina, raio de 8 px. As linhas internas têm padding de
+  10 × 14 px e são separadas por linha fina.
+
+### Movimento
+- O alvo são as curvas da referência do macOS (§6 abaixo): **glide** para o que
+  se move, **settle** para o que chega ou sai, **quick** (ease-out de 140 ms)
+  para estados pequenos, e entradas com escala levemente menor + fade.
+- Acompanha a taxa de atualização da tela (DwmFlush ou composição), nunca um
+  timer fixo.
+- Com "Mostrar animações no Windows" desligado (`SPI_GETCLIENTAREAANIMATION`),
+  tudo fica instantâneo.
+- A implementação está na issue #12 (branch
+  `claude/issue-12-animacoes-12d3f4`), ainda não juntada à main.
+
+## Do's and Don'ts
+
+### Do:
+- **Do** tirar toda cor nova da `Palette` por mistura (`mix`) da coluna com a
+  tinta, nos dois temas.
+- **Do** usar o raio de 8 px e bordas de 1 px em qualquer superfície nova.
+- **Do** usar Segoe UI Variable e Segoe Fluent Icons; nada de fonte ou ícone
+  próprio.
+- **Do** escalar tudo pelo DPI e testar claro e escuro (`SEARCHWIN_THEME`).
+
+### Don't:
+- **Don't** usar o azul de destaque como decoração; ele é só foco e página
+  ativa.
+- **Don't** pôr sombra além da linha de 1 px da pílula.
+- **Don't** criar um recurso visual que não fique desligado por padrão, nem uma
+  animação que atrase a primeira página.
+
+### Drift conhecido
+- As páginas internas (`common.css`) usam uma paleta própria, um pouco
+  diferente da janela (no escuro, cartão `#282828` contra `#282A2E`; destaque
+  igual). Unificar quando a página interna for refeita.
+
+## Referência: Search para macOS
 
 Descrição do design visual e das animações do **Search** instalado em
 `/Applications/Search.app` (Office Commun, build `202611202103`), para servir de
@@ -15,7 +316,7 @@ referência ao port Windows.
 
 ---
 
-## 1. Princípios
+### 1. Princípios
 
 1. **A página é o chão.** O navegador quase não desenha nada. Tudo é cinza
    neutro, sem cor de destaque. Só há duas cores: verde (conexão segura) e
@@ -33,7 +334,7 @@ referência ao port Windows.
 
 ---
 
-## 2. Cores
+### 2. Cores
 
 Cada cor é um **par claro/escuro** em escala de cinza pura (`NSColor(white:)`).
 Elas se resolvem sozinhas conforme a aparência da janela.
@@ -70,7 +371,7 @@ da janela e a selecionada ganha um contorno de 2 px.
 
 ---
 
-## 3. Tipografia
+### 3. Tipografia
 
 - A fonte é a do sistema (SF Pro) em toda parte. Não há fonte própria.
 - Tamanhos usados com mais frequência:
@@ -86,7 +387,7 @@ da janela e a selecionada ganha um contorno de 2 px.
 
 ---
 
-## 4. Métricas e formas
+### 4. Métricas e formas
 
 | Métrica | Valor |
 |---|---|
@@ -116,9 +417,9 @@ da janela e a selecionada ganha um contorno de 2 px.
 
 ---
 
-## 5. Componentes
+### 5. Componentes
 
-### 5.1 Janela e faixa de abas (abas no topo)
+#### 5.1 Janela e faixa de abas (abas no topo)
 - A barra de título cresce até a altura da faixa. Assim, os semáforos descem
   junto e ficam alinhados com as abas.
 - A aba ativa é uma pílula `wash` (raio 9) com o título em `ink`. As inativas
@@ -127,7 +428,7 @@ da janela e a selecionada ganha um contorno de 2 px.
 - Os botões ⟨ ⟩ ↻ e o de favorito ficam à direita e aparecem apagados
   (`faint`) quando estão inativos.
 
-### 5.2 Campo central (Omnibox)
+#### 5.2 Campo central (Omnibox)
 Observado em uma aba nova:
 
 - **Visual.** O campo fica centralizado e um pouco acima do centro (60 pt de
@@ -151,7 +452,7 @@ Observado em uma aba nova:
 - **Erro.** Com um endereço inválido, a borda fica vermelha (35 %) e o campo
   treme (ver §6.5).
 
-### 5.3 Ajustes (página interna)
+#### 5.3 Ajustes (página interna)
 - **Coluna à esquerda (~183 pt).** No topo, o título "Settings" e a busca "Find
   a setting ⌘F". Embaixo, uma lista com ícone + rótulo. A seção ativa é uma
   pílula `wash` de 28 pt de altura. Separadores `hairline` dividem os grupos.
@@ -162,7 +463,7 @@ Observado em uma aba nova:
   - Controles usados: toggle iOS-like, popup, botão de cápsula e segmented.
 - **Seção MOTION.** Tem "Save power in Low Power Mode" e "Reduce animations".
 
-### 5.4 Coluna lateral (abas no lado)
+#### 5.4 Coluna lateral (abas no lado)
 Observado com Tabs = **Left**:
 
 - **Coluna.** Tem ~208 pt e fica sobre a cor `frame`, quase preta no escuro.
@@ -201,7 +502,7 @@ Observado com Tabs = **Left**:
   `hairline`. Mostra "No bookmarks yet" em `muted`, depois a linha destacada
   "Add This Page" e "Manage Bookmarks…".
 
-### 5.5 Outros
+#### 5.5 Outros
 - **Peek.** Um link aberto a partir de um pin aparece num painel por cima da
   página, que fica escurecida com preto a 22 %. O painel tem sombra de 25 %.
   Enquanto a página não desenha, mostra um "esqueleto" com brilho passando.
@@ -222,9 +523,9 @@ Observado com Tabs = **Left**:
 
 ---
 
-## 6. Animações
+### 6. Animações
 
-### 6.1 As curvas base (`Motion`)
+#### 6.1 As curvas base (`Motion`)
 
 | Nome | Curva | Uso |
 |---|---|---|
@@ -251,7 +552,7 @@ travadas.
 - as durações fixas (`Motion.seconds`) viram 0;
 - a respiração do campo para no brilho máximo, parado.
 
-### 6.2 Abas
+#### 6.2 Abas
 - **Seleção.** O fundo `wash` da aba ativa desliza até a nova aba com **glide**.
 - **Abrir/fechar/reordenar.** A faixa inteira se reacomoda com **settle**,
   disparado por qualquer mudança na lista de IDs de aba.
@@ -273,7 +574,7 @@ travadas.
   move. Uma segunda camada, por cima, distorce os títulos só enquanto a lente
   está em movimento.
 
-### 6.3 Coluna lateral
+#### 6.3 Coluna lateral
 - **Sair por cima da página.** Spring `response 0.14, damping 0.86`. Foi medida
   contra Arc e Dia, que levam ~95 ms até 90 %.
 - **Voltar.** Spring `response 0.13, damping 1.0` (crítico, sem rebote).
@@ -286,7 +587,7 @@ travadas.
 - **Redimensionar.** O grip cresce de 28 para 40 pt e escurece com `quick`. Um
   duplo clique volta à largura padrão com **settle**.
 
-### 6.4 Campo de endereço
+#### 6.4 Campo de endereço
 - **Aparecer/sumir.** `scale 0.97 + opacity`. O véu de 74 % sobre a página
   entra com fade, separado do campo, para as bordas da página não aparecerem.
   Na captura feita durante a abertura de uma aba nova dá para ver o campo já
@@ -301,13 +602,13 @@ travadas.
   - É Core Animation, então não refaz o layout a cada frame.
   - Existe porque "uma coisa que nunca se move parece uma foto de um app".
 
-### 6.5 Tremida de erro (`Shake`)
+#### 6.5 Tremida de erro (`Shake`)
 Translação horizontal `sin(t·6π) · 7 pt · (1 − t)`, com `t` indo de 0 a 1 em
 `easeOut 0.5 s`. São três idas e voltas que diminuem até zero. Junto com ela, a
 borda fica vermelha a 35 %. A borda volta ao normal com `quick` assim que você
 digita.
 
-### 6.6 Página (Stage)
+#### 6.6 Página (Stage)
 - **Troca de conteúdo** (página, erro, reader, vídeo flutuando): fade `quick`.
 - **Capa/snapshot saindo:** fade `easeOut 0.2 s`.
 - **Swipe de voltar/avançar** (dois dedos):
@@ -321,7 +622,7 @@ digita.
   - A linha escolhida troca com `spring(0.22, 0.9)`.
   - Ao soltar, a lista sai com `scale 0.96` e fade em `easeOut 0.26 s`.
 
-### 6.7 Peek
+#### 6.7 Peek
 - **Abrir e guardar.** Usa **settle**. O fundo escurece (preto 22 %) com fade.
   O painel entra com `opacity + scale 0.98`.
 - **Pinçar para virar aba.** `spring(0.3, 0.92)`. O painel cresce até o tamanho
@@ -333,12 +634,12 @@ digita.
   - Com Reduce Motion, fica parado.
 - **Selo no pin de origem.** `scale 0.6 + opacity`.
 
-### 6.8 Spaces
+#### 6.8 Spaces
 - **Trocar de Space** (⌃1–9 ou swipe). As linhas deslizam até o próximo Space
   com `easeOut 0.22 s`.
 - **Swipe curto.** Volta para o lugar com **settle**.
 
-### 6.9 Pequenos detalhes
+#### 6.9 Pequenos detalhes
 - **Barra de status** (URL do link sob o ponteiro): fade `easeOut 0.12 s`.
 - **Linha "at rest"** (aba dormindo): `easeInOut 0.22 s`.
 - **Vídeo flutuante (PiP próprio).**
@@ -350,7 +651,7 @@ digita.
 
 ---
 
-## 7. Resumo para o port (WebView2 / Win32)
+### 7. Resumo para o port (WebView2 / Win32)
 
 - **Curvas:**
   - `glide` = spring k≈341 c≈30.
