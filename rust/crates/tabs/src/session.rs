@@ -28,9 +28,16 @@ pub struct Entry {
     /// A pin's own page, the one it was pinned at.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub home: Option<String>,
+    /// The group an ordinary tab is in, by its id in `groups`.
+    #[serde(rename = "groupID", default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+    /// A pin's identity, the same in every window upstream (Pins.swift).
+    #[serde(rename = "pinID", default, skip_serializing_if = "Option::is_none")]
+    pub pin_id: Option<String>,
     /// When you last left the tab, unix milliseconds. Upstream writes a
-    /// Swift Date here; this file is this port's own, so it keeps it simple.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Swift Date here (seconds since 2001, with a fraction): read as such
+    /// so a file from the Mac doesn't fail whole. Written the port's way.
+    #[serde(default, deserialize_with = "touched", skip_serializing_if = "Option::is_none")]
     pub touched: Option<u64>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub muted: bool,
@@ -38,6 +45,18 @@ pub struct Entry {
 
 fn is_false(b: &bool) -> bool {
     !*b
+}
+
+/// Unix ms as written here, or a Swift Date from upstream. Told apart by
+/// size: a Swift Date since 2004 and before the year 5000 is 1e8..1e11, which
+/// as unix ms would be 1970's first days, never a real time here (a test's
+/// made-up clock stays under 1e8). Anything else is no time, not a file
+/// that won't read.
+fn touched<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u64>, D::Error> {
+    // Seconds from 1970 to 2001 (NSDate's reference date).
+    const SWIFT_EPOCH: f64 = 978_307_200.0;
+    let n = Option::<Value>::deserialize(d)?.and_then(|v| v.as_f64()).filter(|n| *n >= 0.0);
+    Ok(n.map(|n| if (1e8..1e11).contains(&n) { ((n + SWIFT_EPOCH) * 1000.0) as u64 } else { n as u64 }))
 }
 
 /// The whole file (Session.Shape).
@@ -68,6 +87,8 @@ impl Shape {
                 pin: t.pin_letter.clone().filter(|_| t.pinned),
                 name: t.name.clone(),
                 home: t.home.clone(),
+                group_id: t.group_id.clone(),
+                pin_id: t.pin_id.clone(),
                 touched: Some(t.last_active_ms),
                 muted: t.muted,
             })
@@ -86,16 +107,19 @@ impl Shape {
         let mut list = Vec::with_capacity(self.tabs.len());
         for (place, e) in self.tabs.into_iter().enumerate() {
             let url = Some(e.url).filter(|u| !u.is_empty());
+            let pinned = e.pin.is_some();
             list.push((
                 Some(place) == front,
                 Tab {
                     asleep: url.is_some(),
                     url,
                     title: e.title,
-                    pinned: e.pin.is_some(),
+                    pinned,
                     pin_letter: e.pin,
                     name: e.name,
                     home: e.home,
+                    pin_id: e.pin_id.filter(|_| pinned),
+                    group_id: e.group_id.filter(|_| !pinned),
                     muted: e.muted,
                     last_active_ms: e.touched.unwrap_or(now_ms),
                     ..Tab::blank(0, now_ms)
@@ -113,11 +137,19 @@ impl Shape {
     }
 
     /// Settings › General › Start with a fresh window (Session.fresh): what
-    /// you said to keep stays (pins and named tabs) and nothing is in
-    /// front, so the window opens on an empty tab beside the pins.
+    /// you said to keep stays (pins, named tabs, the tabs of a group, with
+    /// their groups) and nothing is in front, so the window opens on an
+    /// empty tab beside the pins.
     pub fn fresh(&self) -> Shape {
-        let tabs = self.tabs.iter().filter(|e| e.pin.is_some() || e.name.is_some()).cloned().collect();
-        Shape { tabs, active: -1, groups: None, splits: Vec::new() }
+        let groups: Vec<Value> = self.groups.as_ref().and_then(Value::as_array).cloned().unwrap_or_default();
+        let id = |g: &Value| g.get("id").and_then(Value::as_str).map(str::to_owned);
+        let grouped = |e: &Entry| e.group_id.is_some() && groups.iter().any(|g| id(g) == e.group_id);
+        let tabs: Vec<Entry> =
+            self.tabs.iter().filter(|e| e.pin.is_some() || e.name.is_some() || grouped(e)).cloned().collect();
+        let kept: Vec<Value> =
+            groups.into_iter().filter(|g| tabs.iter().any(|e| e.group_id.is_some() && e.group_id == id(g))).collect();
+        let groups = (!kept.is_empty()).then_some(Value::Array(kept));
+        Shape { tabs, active: -1, groups, splits: Vec::new() }
     }
 }
 

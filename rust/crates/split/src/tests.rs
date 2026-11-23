@@ -1,6 +1,20 @@
 use super::*;
 use serde_json::json;
 
+// The split in a session.json the Mac app wrote (crates/tabs/fixtures).
+#[test]
+fn reads_the_split_of_a_mac_session() {
+    let file: serde_json::Value = serde_json::from_str(include_str!("../../tabs/fixtures/mac-session.json")).unwrap();
+    let ids: Vec<u64> = (10..17).collect();
+    let sp = from_session(file["splits"].as_array().unwrap(), &ids);
+    assert_eq!(sp.list.len(), 1);
+    let s = &sp.list[0];
+    assert_eq!(s.tabs, [14, 15]);
+    assert_eq!(s.axis, Axis::Horizontal);
+    assert!(close(&s.sizes, &[0.6, 0.4]));
+    assert_eq!(s.focused, Some(15));
+}
+
 fn m() -> Metrics {
     Metrics::default()
 }

@@ -32,6 +32,13 @@ pub struct Tab {
     pub name: Option<String>,
     /// A pin's own page, the one it was pinned at (Session.Entry.home).
     pub home: Option<String>,
+    /// A pin's identity from upstream's file (Session.Entry.pinID), the same
+    /// in every window there. Kept so the file reads the same going back.
+    pub pin_id: Option<String>,
+    /// The upstream tab group an ordinary tab is in (Session.Entry.groupID),
+    /// one of the file's `groups`. This port has no groups yet: carried
+    /// through so the groups kept in the file don't lose their tabs.
+    pub group_id: Option<String>,
     pub muted: bool,
     /// When it was last left, in the caller's clock (Tab.touched).
     pub last_active_ms: u64,
@@ -62,6 +69,8 @@ impl Tab {
             pin_letter: None,
             name: None,
             home: None,
+            pin_id: None,
+            group_id: None,
             muted: false,
             last_active_ms: now,
             opener: None,
@@ -550,6 +559,8 @@ impl Tabs {
         tab.pinned = true;
         tab.pin_letter = Some(monogram(tab.url.as_deref()));
         tab.home = tab.url.clone();
+        // A pin is in no group (Browser.pin).
+        tab.group_id = None;
         let at = self.pinned_count();
         self.tabs.insert(at, tab);
         true
@@ -566,6 +577,7 @@ impl Tabs {
         tab.pinned = false;
         tab.pin_letter = None;
         tab.home = None;
+        tab.pin_id = None;
         let at = self.pinned_count();
         self.tabs.insert(at, tab);
         true
