@@ -267,8 +267,10 @@ fn show_list(under: RECT, room: RECT) {
     let left = under.left.min(room.right - width).max(room.left);
     let top = (under.bottom + crate::scale(4, dpi)).min(room.bottom - height).max(room.top);
     unsafe {
-        let _ = SetWindowPos(list, Some(HWND_TOP), left, top, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-        let _ = InvalidateRect(Some(list), None, false);
+        // Unfolds under the box when it appears; moved with the page, it just goes.
+        let appears = !IsWindowVisible(list).as_bool();
+        let to = RECT { left, top, right: left + width, bottom: top + height };
+        crate::motion::show(list, true, appears.then(|| crate::motion::unfolding(to)), to, crate::motion::DROP_MS);
     }
 }
 
@@ -459,8 +461,10 @@ pub fn place() {
         f.bar_down = None;
     });
     unsafe {
-        let _ = SetWindowPos(bar, Some(HWND_TOP), card.left, card.top, card.right - card.left, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-        let _ = InvalidateRect(Some(bar), None, false);
+        // Unfolds down from the top of the page when it appears.
+        let appears = !IsWindowVisible(bar).as_bool();
+        let to = RECT { bottom: card.top + height, ..card };
+        crate::motion::show(bar, true, appears.then(|| crate::motion::unfolding(to)), to, crate::motion::DROP_MS);
     }
 }
 

@@ -304,6 +304,11 @@ fn open(from: TabId, url: &str) {
         return;
     };
     with(|p| p.page = Some(page));
+    // The page underneath dims as the panel rises into place, a sheet over
+    // it: both start where they rise from before they show.
+    crate::motion::fade(dim, 0, DIM_ALPHA, crate::motion::SHEET_MS);
+    let rise = crate::scale(16, crate::dpi());
+    crate::motion::place(panel, Some(crate::motion::rising(at, rise)), at, crate::motion::SHEET_MS);
     unsafe {
         let _ = ShowWindow(dim, SW_SHOWNOACTIVATE);
         let _ = ShowWindow(panel, SW_SHOW);
@@ -354,6 +359,8 @@ pub fn place() {
         let _ = SetWindowPos(dim, None, card.left, card.top, card.right - card.left, card.bottom - card.top, SWP_NOZORDER | SWP_NOACTIVATE);
         let _ = SetWindowPos(panel, None, at.left, at.top, at.right - at.left, at.bottom - at.top, SWP_NOZORDER | SWP_NOACTIVATE);
     }
+    // The window moved: the panel follows at once, not from where it was rising.
+    crate::motion::place(panel, None, at, 0);
     page::place_elsewhere(page, inside);
     page::moved_elsewhere(page);
 }
@@ -465,6 +472,13 @@ extern "system" fn panel_proc(panel: HWND, message: u32, wparam: WPARAM, lparam:
     unsafe {
         match message {
             WM_ERASEBKGND => LRESULT(1),
+            // Rising into place: the page's pop-ups (a <select>) open where it is now.
+            WM_MOVE => {
+                if let Some(page) = with(|p| p.page) {
+                    page::moved_elsewhere(page);
+                }
+                LRESULT(0)
+            }
             WM_PAINT => {
                 paint(panel);
                 LRESULT(0)

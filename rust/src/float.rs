@@ -346,6 +346,8 @@ fn open(id: TabId, aspect: f64, away: bool) {
         let _ = SetWindowPos(window, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
         SetTimer(Some(window), HOVER_TIMER, HOVER_MS, None);
     }
+    // It rises into its corner rather than appearing there.
+    crate::motion::place(window, Some(crate::motion::rising(at, crate::scale(16, dpi))), at, crate::motion::SHEET_MS);
     crate::repaint_card();
 }
 
@@ -560,6 +562,7 @@ extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM, lpara
             }
             WM_DPICHANGED => {
                 let r = &*(lparam.0 as *const RECT);
+                crate::motion::place(window, None, *r, 0);
                 let _ = SetWindowPos(window, None, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
                 LRESULT(0)
             }

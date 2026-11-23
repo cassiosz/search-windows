@@ -159,19 +159,84 @@ Hello, copiar + limpeza em 30 s, diálogos de arquivo do CSV.
 Deixado de fora: ajuste "oferecer salvar senhas" (sempre ligado), pastas de
 pins do Arc (entram como pins soltos).
 
-### Animações ⬜ (transversal, antes de distribuir)
+### Animações ✅ (issue #12)
 
-O GDI puro não anima de forma suave. Para chegar lá, a coluna e as transições
-passam para **DirectComposition**, que já vem no Windows e não exige runtime
-novo. Medir antes e depois: exe, memória, primeira página.
+**Decisão: sem DirectComposition.** O protótipo mostrou que não é preciso.
+A coluna é uma faixa de 250 px já desenhada com buffer duplo, e o GDI a
+redesenha a cada quadro com folga. Os pop-ups são janelas próprias, e o DWM
+as move. Um device de DComp/D3D pesaria na memória e no exe sem ganho visível.
+
+Como funciona (`rust/src/motion.rs`):
+- Uma thread espera o `DwmFlush` e posta um quadro por composição.
+- O quadro é calculado pelo tempo decorrido. A curva é ease-out quártica
+  (≈ `cubic-bezier(0.16, 1, 0.3, 1)`), sem passar do fim.
+- A thread acaba junto com a última animação. Parado, nada roda.
+- Com "Efeitos de animação" desligado no Windows
+  (`SPI_GETCLIENTAREAANIMATION`), tudo chega ao fim na hora, sem nenhum
+  quadro.
+- Gancho de teste: `SEARCHWIN_MOTION=on|off`.
+- No bench, `state` traz `bar.motion` = `{on, moving, frames}`.
 
 O que anima:
-- abrir, fechar e trocar aba;
-- trocar de Space (cor da coluna);
-- sugestões do campo;
-- Split View e divisória;
-- peek e vídeo flutuante;
-- barra de salvar senha e lista de contas.
+
+| Mudança | Movimento | Duração |
+|---|---|---|
+| Trocar aba | a pílula desliza até a nova linha | 180 ms |
+| Abrir aba | a linha abre do zero, revelada pelo meio | 200 ms |
+| Fechar aba | o espaço da linha fecha | 160 ms |
+| Trocar de Space | a cor da coluna se funde na nova | 240 ms |
+| Sugestões (e Ctrl+K) | o menu se desdobra para baixo e acompanha o número de linhas | 150 ms |
+| Lista de contas, barra de salvar senha | também se desdobram | 150 ms |
+| Split View | as páginas deslizam ao dividir, igualar ou separar; a nova cresce da borda | 240 ms |
+| Peek | o fundo escurece enquanto o painel sobe 16 px | 220 ms |
+| Vídeo flutuante | sobe 16 px até o canto | 220 ms |
+
+- Arrastar a divisória segue o mouse, sem animação.
+- Os pop-ups aparecem "cloaked", já pintados: nunca uma caixa vazia por um
+  quadro.
+
+Medido (22/11/2026, release, mesma máquina, base `b3e5386` × agora):
+
+| Medida | Base | Agora |
+|---|---|---|
+| exe | 1305 KB | 1318 KB |
+| memória do app (privada) | ~3,7–3,8 MB | ~3,7–3,8 MB |
+| primeira página | 317–345 ms | 309–354 ms |
+
+- Primeira página e memória ficam dentro do ruído entre execuções.
+- Testes: 323 passando (2 ignorados).
+- Monitor de ~144 Hz: ~29 quadros numa transição de 200 ms. Desligado: 0.
+
+Revisão (`impeccable-motion-reviewer`, 2 rodadas):
+- Aprovados:
+  - o deslize da pílula;
+  - o desdobrar do menu;
+  - a abertura e o fechamento das linhas;
+  - o Split, com contorno e divisórias só depois que as páginas param;
+  - o modo reduzido.
+- A última correção (pílula na linha que abre) foi conferida por captura,
+  mas não por uma terceira rodada do revisor.
+
+Ficou de fora:
+- Saídas animadas: fechar peek, vídeo, menu e lista é instantâneo.
+- Animar o conteúdo da página ao trocar de aba (o WebView2 troca na hora).
+- Pílula entre pins e abas: o pin não tem pílula que deslize.
+
+Testar à mão (o bench não alcança, ou não foi capturado):
+- Peek (Shift/Alt-clique num link):
+  - o fundo escurece e o painel sobe;
+  - um `<select>` dentro dele abre no lugar certo depois da subida.
+- Vídeo flutuante:
+  - sobe até o canto;
+  - arrastar logo ao aparecer não "briga" com a subida.
+- Trocar de Space com cores diferentes: a cor da coluna se funde.
+- Barra de salvar senha e lista de contas: se desdobram, sem caixa vazia.
+- Split: Ctrl+Alt+N, duplo clique na divisória (igualar), separar.
+- Fechar duas abas seguidas rápido, e trocar de aba rápido com Ctrl+Tab
+  segurado: nada pula nem fica para trás.
+- Desligar "Efeitos de animação" em Configurações › Acessibilidade e
+  conferir que tudo muda na hora.
+- Monitor de 60 Hz: continua suave.
 
 ### Fase 4 — Distribuição ⬜
 Extensões do Chrome (WebView2 tem suporte parcial e sem popup — desenhar),

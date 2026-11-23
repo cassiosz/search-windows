@@ -799,6 +799,11 @@ pub fn has_panes() -> bool {
     with(|p| !p.panes.is_empty())
 }
 
+/// The card and the pages side by side in it, as last arranged.
+pub fn placed() -> (RECT, Vec<(TabId, RECT)>) {
+    with(|p| (p.bounds, p.panes.clone()))
+}
+
 /// A whole row of tabs was put away: pages on their way for it are closed as they come.
 pub fn new_epoch() {
     with(|p| {
