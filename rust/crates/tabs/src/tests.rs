@@ -545,6 +545,21 @@ fn awake_reasons_are_named() {
     assert_eq!(t.awake_because(t.get(ids[2]).unwrap(), false), None);
 }
 
+// Issue #2: a tab playing sound outlasts the wait, and sleeps once it stops.
+#[test]
+fn a_tab_playing_sound_stays_awake_until_it_stops() {
+    let (mut t, ids) = idle();
+    let wait = SleepPace::Normal.wait_ms();
+    t.get_mut(ids[1]).unwrap().audible = true;
+    assert_eq!(t.due_to_sleep(10 * wait, wait), [ids[2]]);
+    t.get_mut(ids[1]).unwrap().audible = false;
+    assert_eq!(t.due_to_sleep(10 * wait, wait), [ids[1], ids[2]]);
+    // A page put down some other way (a space left) takes its sound along.
+    t.get_mut(ids[2]).unwrap().audible = true;
+    t.mark_asleep(ids[2]);
+    assert!(!t.get(ids[2]).unwrap().audible);
+}
+
 // Sleep.swift pinKept: a pin stays awake in the window on screen.
 #[test]
 fn a_pin_never_sleeps_while_the_window_is_open() {

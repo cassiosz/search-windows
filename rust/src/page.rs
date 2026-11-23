@@ -39,6 +39,8 @@ pub enum Event {
     History,
     /// The site's icon, as a PNG, for the page now in the tab.
     Icon(Vec<u8>),
+    /// The page started or stopped playing sound.
+    Audible(bool),
     /// The page took the keyboard (a click in it): in a split, its pane is the one in front.
     Focused,
 }
@@ -415,6 +417,20 @@ fn configure(id: TabId, epoch: u64, controller: ICoreWebView2Controller) -> Resu
             })),
             &mut token,
         )?;
+        // A page playing sound is kept awake (tabs' "playing sound" rule).
+        if let Ok(sounding) = view.cast::<ICoreWebView2_8>() {
+            let k = key.clone();
+            sounding.add_IsDocumentPlayingAudioChanged(
+                &IsDocumentPlayingAudioChangedEventHandler::create(Box::new(move |sender, _| {
+                    let Some(view) = sender.and_then(|v| v.cast::<ICoreWebView2_8>().ok()) else { return Ok(()) };
+                    let mut playing = BOOL::default();
+                    view.IsDocumentPlayingAudio(&mut playing)?;
+                    crate::page_event(k.get(), Event::Audible(playing.as_bool()));
+                    Ok(())
+                })),
+                &mut token,
+            )?;
+        }
         // The site's icon, asked for only when the page says it has one: a tab
         // that is never shown never costs a decode.
         if let Ok(iconic) = view.cast::<ICoreWebView2_15>() {
