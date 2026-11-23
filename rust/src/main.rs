@@ -16,6 +16,7 @@ mod float;
 mod forms;
 mod import;
 mod internal;
+mod motion;
 mod omnibox;
 mod drive;
 mod page;
@@ -282,6 +283,35 @@ struct State {
     splits: searchwin_split::Splits,
     /// A divider being dragged.
     drag: Option<searchwin_split::Drag>,
+    /// What the column last showed, so the next change can glide from it.
+    seen: Seen,
+    /// A split's pages on their way.
+    glide: Option<Glide>,
+}
+
+/// The column as last drawn (paint), which a change glides away from (motion.rs).
+#[derive(Default)]
+struct Seen {
+    painted: bool,
+    row_of: String,
+    dark: bool,
+    /// The tab rows, in order.
+    rows: Vec<u64>,
+    /// The raised pill: whose, and where it was drawn.
+    pill: Option<(u64, RECT)>,
+    pill_from: RECT,
+    /// The ground drawn, the one a fade starts from, and the one it goes to.
+    ground: Rgb,
+    ground_from: Rgb,
+    ground_to: Rgb,
+}
+
+/// A split's pages gliding: from, to, and what is placed once they land
+/// (`to`, or nothing beside the page in front when the split was taken apart).
+struct Glide {
+    from: Vec<(u64, RECT)>,
+    to: Vec<(u64, RECT)>,
+    end: Vec<(u64, RECT)>,
 }
 
 thread_local! {
@@ -462,6 +492,8 @@ fn main() -> windows_core::Result<()> {
                 sent: Vec::new(),
                 splits,
                 drag: None,
+                seen: Seen::default(),
+                glide: None,
             })
         });
         apply_font();
@@ -469,6 +501,7 @@ fn main() -> windows_core::Result<()> {
         SendMessageW(field, EM_SETCUEBANNER, Some(WPARAM(1)), Some(LPARAM(placeholder.as_ptr() as isize)));
         apply_theme();
         drive::start(window);
+        motion::set_target(window);
 
         let _ = ShowWindow(window, SW_SHOW);
         layout();
@@ -718,13 +751,59 @@ fn layout() {
 /// The page in front in the card, or the pages of its split side by side.
 fn place_pages() {
     let client = client_rect();
-    let Some((card, panes)) = state(|s| {
+    let Some((card, panes, front, dragging)) = state(|s| {
         let card = card_rect(client, s.dpi);
-        (card, if s.splits.is_empty() { Vec::new() } else { split::panes(s, card) })
+        s.glide = None;
+        (card, if s.splits.is_empty() { Vec::new() } else { split::panes(s, card) }, s.tabs.selected_id(), s.drag.is_some())
     }) else {
         return;
     };
+    motion::stop(motion::Key::Split);
+    // Pages glide only when the card stayed put and the page on screen stays
+    // on screen: a resize or a drag follows at once, another tab just shows.
+    let (was_card, was) = page::placed();
+    let shown = page::front();
+    if !dragging && card == was_card && (!was.is_empty() || !panes.is_empty()) {
+        // Taken apart: the page in front opens out to the whole card.
+        let to = if panes.is_empty() { was.iter().filter(|(id, _)| *id == front).map(|&(id, _)| (id, card)).collect() } else { panes.clone() };
+        let stays = was.iter().map(|(id, _)| Some(*id)).chain([shown]).any(|id| id.is_some_and(|id| to.iter().any(|(t, _)| *t == id)));
+        let from: Vec<(u64, RECT)> = to
+            .iter()
+            .map(|&(id, r)| {
+                let at = was.iter().find(|(w, _)| *w == id).map(|&(_, w)| w);
+                let at = at.or((was.is_empty() && Some(id) == shown).then_some(card));
+                // A page coming in grows from the far edge of its place.
+                let edge = if r.right - r.left < card.right - card.left { RECT { left: r.right, ..r } } else { RECT { top: r.bottom, ..r } };
+                (id, at.unwrap_or(edge))
+            })
+            .collect();
+        if stays && from != to && motion::begin(motion::Key::Split, motion::SPLIT_MS) {
+            page::arrange(card, from.clone());
+            state(|s| s.glide = Some(Glide { from, to, end: panes }));
+            return;
+        }
+    }
     page::arrange(card, panes);
+}
+
+/// A frame of a split's pages gliding (motion.rs); they land on the last.
+pub fn split_frame() {
+    let card = card_rect(client_rect(), dpi());
+    let Some(p) = motion::progress(motion::Key::Split) else {
+        if let Some(glide) = state(|s| s.glide.take()).flatten() {
+            page::arrange(card, glide.end);
+            repaint_card();
+        }
+        return;
+    };
+    let Some(now) = state(|s| {
+        let glide = s.glide.as_ref()?;
+        Some(glide.from.iter().zip(&glide.to).map(|(&(id, a), &(_, b))| (id, motion::lerp_rect(a, b, p))).collect::<Vec<_>>())
+    })
+    .flatten() else {
+        return;
+    };
+    page::arrange(card, now);
 }
 
 /// How thick Windows makes the sizing frame at this DPI: what a maximized
@@ -908,7 +987,11 @@ fn column(s: &State, bottom: i32) -> Column {
     let content = (s.tabs.iter().skip(pins).filter(standing).count() + 1) as i32 * height;
     let most = (content - (list.bottom - list.top)).max(0);
     let mut y = top - s.scroll.clamp(0, most);
+    // A new row opens from nothing; a closed one's room closes up.
+    let room = |after: u64| motion::progress(motion::Key::Gap(after)).map_or(0, |p| motion::lerp(height, 0, p));
+    y += room(motion::TOP);
     for tab in s.tabs.iter().skip(pins).filter(standing) {
+        let row_h = motion::progress(motion::Key::Row(tab.id)).map_or(height, |p| motion::lerp(0, height, p));
         let mut label = label(tab, s.private.contains_key(&tab.id));
         let mut also = None;
         // A split is one row: both marks, every title.
@@ -921,7 +1004,7 @@ fn column(s: &State, bottom: i32) -> Column {
         }
         rows.push(Row {
             item: Item::Tab(tab.id),
-            rect: RECT { left, top: y, right, bottom: y + height },
+            rect: RECT { left, top: y, right, bottom: y + row_h },
             label,
             detail: String::new(),
             letter: letter(tab.url.as_deref()),
@@ -931,7 +1014,7 @@ fn column(s: &State, bottom: i32) -> Column {
             private: s.private.contains_key(&tab.id),
             also,
         });
-        y += height;
+        y += row_h + room(tab.id);
     }
     rows.push(Row {
         item: Item::NewTab,
@@ -1135,6 +1218,8 @@ struct Picture {
     focused_pane: Option<RECT>,
     /// The page in front is out in the floating window: the card says so.
     floated: bool,
+    /// The tab in front's raised pill, where it is (it glides between rows).
+    pill: Option<RECT>,
 }
 
 /// Draws off screen and copies in at once: hovering never flickers.
@@ -1195,17 +1280,32 @@ unsafe fn paint_column(canvas: HDC, area: RECT, p: &Picture) {
                 }
                 Item::Tab(_) | Item::NewTab => {
                     // Tab rows scroll under the pins, never over them.
+                    let inset = scale(2, dpi);
                     if !clipped {
                         let list = p.column.list;
                         SaveDC(canvas);
                         IntersectClipRect(canvas, list.left, list.top, list.right, list.bottom);
                         clipped = true;
+                        // Under every row: it may be on its way between two.
+                        if let Some(at) = p.pill {
+                            // On a row still opening, the pill is the row's slot itself, as its words are clipped to it.
+                            let inset = if at.bottom - at.top < scale(ROW, dpi) { 0 } else { inset };
+                            raised(canvas, RECT { top: at.top + inset, bottom: at.bottom - inset, ..at }, &palette, radius);
+                        }
                     }
-                    let inset = scale(2, dpi);
+                    // A row opening shows through its slot, drawn at full height from the middle.
+                    let full = scale(ROW, dpi);
+                    let opening = row.item != Item::NewTab && r.bottom - r.top < full;
+                    let r = if opening {
+                        SaveDC(canvas);
+                        IntersectClipRect(canvas, r.left, r.top, r.right, r.bottom);
+                        let top = r.top + (r.bottom - r.top - full) / 2;
+                        RECT { top, bottom: top + full, ..r }
+                    } else {
+                        r
+                    };
                     let pill = RECT { top: r.top + inset, bottom: r.bottom - inset, ..r };
-                    if row.selected {
-                        raised(canvas, pill, &palette, radius);
-                    } else if hovered {
+                    if hovered && !row.selected {
                         rounded(canvas, pill, palette.hover, palette.hover, radius);
                     }
                     let icon_box = RECT {
@@ -1243,6 +1343,9 @@ unsafe fn paint_column(canvas: HDC, area: RECT, p: &Picture) {
                     }
                     let ink = if row.selected { palette.text } else if row.asleep { palette.faint } else { palette.dim };
                     text(canvas, &row.label, words, p.font, ink, false);
+                    if opening {
+                        let _ = RestoreDC(canvas, -1);
+                    }
                 }
                 _ => {}
             }
@@ -1353,6 +1456,76 @@ fn crumb(tab: &Tab) -> (String, String) {
     (site, title)
 }
 
+/// Compares what is about to be drawn with what was, and starts the glides
+/// that explain the change: a row opening or closing up, the ground fading
+/// to another space's colour. Gives the ground to draw, and whether this is
+/// the same row of tabs as last time (a space switch or a new theme just shows).
+fn notice(s: &mut State, ground: Rgb) -> (Rgb, bool) {
+    use motion::{Key, begin};
+    let pins = s.tabs.pinned_count();
+    let rows: Vec<u64> = s.tabs.iter().skip(pins).filter(|t| s.splits.stands_in_row(t.id)).map(|t| t.id).collect();
+    let seen = &mut s.seen;
+    let same = seen.painted && seen.row_of == s.row_of && seen.dark == s.dark;
+    if same && rows != seen.rows {
+        let added: Vec<u64> = rows.iter().filter(|id| !seen.rows.contains(id)).copied().collect();
+        let gone: Vec<usize> = (0..seen.rows.len()).filter(|&i| !rows.contains(&seen.rows[i])).collect();
+        // One or two at a time; a whole row replaced (closing the others) just shows.
+        if added.len() + gone.len() <= 2 {
+            for id in added {
+                begin(Key::Row(id), motion::ROW_IN_MS);
+            }
+            for i in gone {
+                let after = seen.rows[..i].iter().rev().find(|id| rows.contains(id)).copied().unwrap_or(motion::TOP);
+                begin(Key::Gap(after), motion::ROW_OUT_MS);
+            }
+        }
+    }
+    if !seen.painted || seen.dark != s.dark {
+        motion::stop(Key::Ground);
+        seen.ground_to = ground;
+    } else if ground != seen.ground_to {
+        seen.ground_from = seen.ground;
+        seen.ground_to = ground;
+        begin(Key::Ground, motion::GROUND_MS);
+    }
+    let drawn = motion::progress(Key::Ground).map_or(ground, |p| mix(seen.ground_from, ground, (p * 100.0) as u32));
+    seen.ground = drawn;
+    seen.painted = true;
+    seen.dark = s.dark;
+    seen.row_of.clone_from(&s.row_of);
+    seen.rows = rows;
+    (drawn, same)
+}
+
+/// Where the tab in front's pill is drawn: on its row, or on its way there
+/// from the row it was on.
+fn pill_of(s: &mut State, column: &Column, same: bool) -> Option<RECT> {
+    use motion::Key;
+    let now = column.rows.iter().find_map(|r| match r.item {
+        Item::Tab(id) if r.selected => Some((id, r.rect)),
+        _ => None,
+    });
+    let seen = &mut s.seen;
+    match (now, seen.pill) {
+        // Only between two rows that stay: into an opening row, or off a closed
+        // one, the pill rides the row itself, which the row's own glide moves.
+        (Some((id, _)), Some((was, at)))
+            if id != was
+                && same
+                && motion::progress(Key::Row(id)).is_none()
+                && column.rows.iter().any(|r| r.item == Item::Tab(was)) =>
+        {
+            seen.pill_from = at;
+            motion::begin(Key::Pill, motion::PILL_MS);
+        }
+        (Some((id, _)), Some((was, _))) if id != was => motion::stop(Key::Pill),
+        (None, _) => motion::stop(Key::Pill),
+        _ => {}
+    }
+    seen.pill = now.map(|(id, to)| (id, motion::progress(Key::Pill).map_or(to, |p| motion::lerp_rect(seen.pill_from, to, p))));
+    seen.pill.map(|(_, at)| at)
+}
+
 fn paint(window: HWND) {
     let mut client = RECT::default();
     unsafe {
@@ -1366,8 +1539,13 @@ fn paint(window: HWND) {
     let Some(picture) = state(|s| {
         let (site, title) = crumb(s.tabs.selected());
         let ground = spaces::wash(&s.spaces, s.dark).map_or(s.palette.background, |(tint, amount)| mix(s.palette.background, tint, amount));
+        let (ground, same) = notice(s, ground);
+        let column = column(s, client.bottom);
+        let pill = pill_of(s, &column, same);
         let (mut dividers, mut focused_pane) = (Vec::new(), None);
-        if let Some(layout) = split::layout_of(s, card_rect(client, s.dpi)).filter(|l| l.paired) {
+        // While the pages glide, no hairlines or outline at places they haven't reached.
+        let gliding = s.glide.is_some();
+        if let Some(layout) = split::layout_of(s, card_rect(client, s.dpi)).filter(|l| l.paired && !gliding) {
             dividers = layout.dividers.iter().map(|d| split::win(*d)).collect();
             let front = s.tabs.selected_id();
             focused_pane = layout.panes.iter().find(|(id, _)| *id == front).map(|(_, r)| split::win(*r));
@@ -1377,7 +1555,8 @@ fn paint(window: HWND) {
             dividers,
             focused_pane,
             floated: floating.is_some() && floating == Some(s.tabs.selected_id()),
-            column: column(s, client.bottom),
+            column,
+            pill,
             palette: s.palette,
             font: s.font,
             small_font: s.small_font,
@@ -1905,6 +2084,10 @@ extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM, lpara
                 import::act();
                 LRESULT(0)
             }
+            motion::WM_FRAME => {
+                motion::frame();
+                LRESULT(0)
+            }
             WM_ERASEBKGND => LRESULT(1),
             WM_PAINT => {
                 paint(window);
@@ -2112,6 +2295,7 @@ fn place_drop() {
     let Some((window, drop, dpi, count)) = state(|s| (s.window, s.drop, s.dpi, s.suggestions.len())) else { return };
     unsafe {
         if count == 0 || IsIconic(window).as_bool() {
+            motion::stop(motion::Key::Window(drop.0 as isize));
             let _ = ShowWindow(drop, SW_HIDE);
             return;
         }
@@ -2119,16 +2303,15 @@ fn place_drop() {
         let mut corner = POINT { x: field.left, y: scale(BAR, dpi) + scale(2, dpi) };
         let _ = ClientToScreen(window, &mut corner);
         let height = count as i32 * scale(SUGGESTION_ROW, dpi) + 2 * scale(DROP_PAD, dpi);
-        let _ = SetWindowPos(
-            drop,
-            None,
-            corner.x,
-            corner.y,
-            field.right - field.left,
-            height,
-            SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW,
-        );
-        let _ = InvalidateRect(Some(drop), None, false);
+        let to = RECT { left: corner.x, top: corner.y, right: corner.x + field.right - field.left, bottom: corner.y + height };
+        // Unfolds when it appears and follows its rows' count; moved with the window, it just goes.
+        let was = motion::rect_of(drop);
+        let from = if !IsWindowVisible(drop).as_bool() {
+            Some(motion::unfolding(to))
+        } else {
+            (was.left == to.left && was.top == to.top && was.right == to.right).then_some(was)
+        };
+        motion::show(drop, false, from, to, motion::DROP_MS);
     }
 }
 
@@ -3227,6 +3410,7 @@ pub fn bench_state() -> serde_json::Value {
             "title": title,
             "field_shown": shown(field),
             "drop_shown": shown(drop),
+            "motion": motion::bench_state(),
         });
     }
     if !suggestions.is_empty() {
