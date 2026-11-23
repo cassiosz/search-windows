@@ -23,6 +23,7 @@ searchwin-spaces = { path = "crates/spaces" }
 searchwin-split = { path = "crates/split" }
 searchwin-vault = { path = "crates/vault" }
 searchwin-import = { path = "crates/import" }
+searchwin-extensions = { path = "crates/extensions" }
 percent-encoding = "2"
 webview2-com = "0.39"
 windows-core = "0.62"

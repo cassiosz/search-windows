@@ -111,6 +111,11 @@ pub fn message(tab: crate::page::TabId, source: &str, json: &str) -> Option<Stri
             "import" => crate::import::message(tab, op, &asked),
             _ => return None,
         },
+        // Adding one runs what it brings in every page: only Settings asks.
+        op if op.starts_with("extensions.") => match from.as_str() {
+            "settings" => crate::extensions::message(op, &asked),
+            _ => return None,
+        },
         "settings.get" => settings(None),
         "settings.set" => {
             let value = asked.get("value").cloned().unwrap_or(Value::Null);
@@ -123,6 +128,9 @@ pub fn message(tab: crate::page::TabId, source: &str, json: &str) -> Option<Stri
             // Peek's listener goes into every page's next document, or out of it.
             if (key == "peek" || key == "peek_with") && error.is_none() {
                 crate::page::refresh_peek();
+            }
+            if key == "extensions" && error.is_none() {
+                crate::extensions::switched();
             }
             settings(error)
         }
@@ -216,6 +224,9 @@ mod tests {
             "spaces.delete",
             "profiles.delete",
             "settings.set",
+            "extensions.get",
+            "extensions.add",
+            "extensions.remove",
         ] {
             let asked = json!({ "op": op, "id": 1, "row": 1, "node": "x", "from": "chrome", "host": "a.com", "user": "u" }).to_string();
             assert_eq!(message(1, "https://example.com/", &asked), None);
@@ -231,6 +242,11 @@ mod tests {
             assert_eq!(message(1, "search://history", &asked), None, "{op}");
         }
         assert_eq!(message(1, "search://passwords", r#"{"op":"import.run","id":1}"#), None);
+        for op in ["extensions.get", "extensions.add", "extensions.set", "extensions.remove"] {
+            let asked = json!({ "op": op, "id": 1, "dir": "1" }).to_string();
+            assert_eq!(message(1, "search://history", &asked), None, "{op}");
+            assert_eq!(message(1, "search://import", &asked), None, "{op}");
+        }
         assert!(page("search://passwords").is_some() && page("search://import").is_some());
     }
 }

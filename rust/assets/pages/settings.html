@@ -44,6 +44,10 @@ const T = pt ? {
   sleep: ['Pôr para dormir as abas sem uso', 'Uma aba em repouso solta a página e volta de onde você parou', 'memória dormir suspender ram'],
   paces: {later: 'Mais tarde — após duas horas', normal: 'Normal — após meia hora', sooner: 'Mais cedo — após dez minutos'},
   shield: ['Bloquear anúncios e rastreadores', 'Terceiros que só servem para vigiar, e os anúncios do YouTube', 'shield anúncios bloqueador rastreio youtube adblock'],
+  extensions_t: 'Extensões',
+  extensions: ['Extensões do Chrome', 'Pastas descompactadas, com manifest.json; o popup abre pela peça na barra. Abas privadas ficam sem elas', 'extensões chrome addon plugin complemento'],
+  ext_add: 'Adicionar pasta…', ext_restart: 'Reinicie o Search para as extensões começarem a rodar', ext_none: 'Sem popup', ext_popup: 'Com popup',
+  ext_sure: n => 'Remover a extensão "' + n + '"?',
 } : {
   title: 'Settings', find: 'Find a setting', none: 'No setting matches', custom: 'Custom',
   search: 'Searching', tabs: 'Tabs', memory: 'Memory', blocking: 'Blocking', browsing: 'Browsing',
@@ -67,6 +71,10 @@ const T = pt ? {
   sleep: ["Sleep tabs you aren't using", 'A resting tab lets its page go and comes back where you left it', 'memory discard suspend ram'],
   paces: {later: 'Later — after two hours', normal: 'Normal — after half an hour', sooner: 'Sooner — after ten minutes'},
   shield: ['Block ads and trackers', "Third parties whose only job is to watch, and YouTube's ads", 'adblock ad blocker ads youtube'],
+  extensions_t: 'Extensions',
+  extensions: ['Chrome extensions', "Unpacked folders with a manifest.json; the popup opens from the puzzle piece in the bar. Private tabs go without them", 'extensions chrome addon plugin add-on'],
+  ext_add: 'Add folder…', ext_restart: 'Restart Search for extensions to start running', ext_none: 'No popup', ext_popup: 'Has a popup',
+  ext_sure: n => 'Remove the extension "' + n + '"?',
 };
 const title = $("title"), find = $("find"), none = $("none"), groups = $("groups");
 document.title = T.title;
@@ -75,7 +83,7 @@ find.placeholder = T.find;
 none.textContent = T.none;
 
 // Every line of Settings, written once: the page draws them and the find box filters them.
-const GROUPS = [['search', ['engine', 'custom_engine']], ['tabs', ['layout', 'close_goes_back', 'split_view']], ['browsing', ['float_away', 'peek', 'peek_with']], ['memory', ['sleep']], ['blocking', ['shield']]];
+const GROUPS = [['search', ['engine', 'custom_engine']], ['tabs', ['layout', 'close_goes_back', 'split_view']], ['browsing', ['float_away', 'peek', 'peek_with']], ['memory', ['sleep']], ['blocking', ['shield']], ['extensions_t', ['extensions']]];
 const rows = {};
 let prefs = {};
 
@@ -119,7 +127,7 @@ function filter() {
     let shown = false;
     for (const row of section.querySelectorAll('.row')) {
       const el = row.querySelector('[id]'), key = el ? el.id : '';
-      const applies = (key !== 'custom_engine' || prefs.engine === 'custom') && (key !== 'peek_with' || prefs.peek);
+      const applies = (key !== 'custom_engine' || prefs.engine === 'custom') && (key !== 'peek_with' || prefs.peek) && (!row.dataset.ext || prefs.extensions);
       row.hidden = !applies || !words.every(w => (row.dataset.words || '').includes(w));
       shown = shown || !row.hidden;
     }
@@ -149,6 +157,7 @@ function show(reply) {
   document.getElementById('shield').checked = prefs.shield;
   document.getElementById('close_goes_back').checked = prefs.close_goes_back;
   document.getElementById('split_view').checked = prefs.split_view;
+  document.getElementById('extensions').checked = prefs.extensions;
   const custom = rows.custom_engine;
   const wrong = prefs.engine === 'custom' && !reply.custom_ok;
   custom.about.textContent = wrong ? T.wrong : custom.detail;
@@ -228,8 +237,31 @@ function drawSpaces(r) {
   filter();
 }
 
+// Extensions: under their switch, only while it is on. Each answer is the whole list.
+const extBox = document.querySelector('#extensions_t .box');
+let extRows = [];
+function drawExtensions(r) {
+  if (!r || !r.list) return;
+  const words = (T.extensions_t + ' extension extensão').toLowerCase();
+  const mark = row => (row.dataset.ext = '1', row);
+  const rows = r.list.map(e => {
+    const c = make('input', {type: 'checkbox', className: 'switch', checked: e.on, onchange: () => ask('extensions.set', {dir: e.dir, on: c.checked}).then(drawExtensions)});
+    c.setAttribute('role', 'switch');
+    c.setAttribute('aria-label', e.name);
+    return mark(line([make('div', {className: 'grow'}, [make('div', {textContent: e.name}), make('div', {className: 'detail', textContent: e.popup ? T.ext_popup : T.ext_none})]),
+      make('div', {className: 'tools'}, [c, button(T.remove, () => confirm(T.ext_sure(e.name)) && ask('extensions.remove', {dir: e.dir}).then(drawExtensions))])], words + ' ' + e.name));
+  });
+  const note = r.error || (r.restart ? T.ext_restart : '');
+  rows.push(mark(line([make('div', {className: 'grow detail' + (r.error ? ' wrong' : ''), textContent: note}), button(T.ext_add, () => ask('extensions.add').then(drawExtensions))], words + ' ' + T.ext_add)));
+  for (const old of extRows) old.remove();
+  extRows = rows;
+  extBox.append(...rows);
+  filter();
+}
+
 find.addEventListener('input', filter);
 ask('settings.get').then(show);
 ask('spaces.get').then(drawSpaces);
+ask('extensions.get').then(drawExtensions);
 </script>
 </body></html>

@@ -65,6 +65,29 @@ fn handle(window: HWND, request: Request, reply: Reply) {
             let handled = crate::forms::bench_act(&keys["forms:".len()..]);
             reply.complete(Response::ok(json!({ "handled": handled })));
         }
+        // Extensions' button, without the mouse: "ext:popup <dir>" opens that
+        // popup under the button (or the window's top right), "ext:close" shuts it.
+        Request::Key { keys } if keys.starts_with("ext:") => {
+            let handled = match keys["ext:".len()..].split_once(' ') {
+                Some(("popup", dir)) => {
+                    let anchor = crate::extensions_button().unwrap_or_else(|| {
+                        let mut r = windows::Win32::Foundation::RECT::default();
+                        unsafe {
+                            let _ = windows::Win32::UI::WindowsAndMessaging::GetWindowRect(window, &mut r);
+                        }
+                        windows::Win32::Foundation::RECT { left: r.right - 200, top: r.top, right: r.right - 150, bottom: r.top + 50 }
+                    });
+                    crate::extensions::open_popup(dir, anchor);
+                    true
+                }
+                None if &keys[4..] == "close" => {
+                    crate::extensions::close_popup();
+                    true
+                }
+                _ => false,
+            };
+            reply.complete(Response::ok(json!({ "handled": handled })));
+        }
         Request::Key { keys } => match parse_keys(&keys) {
             Some((key, ctrl, alt, shift)) => {
                 let handled = crate::shortcut_with(key, ctrl, alt, shift) || crate::field_key(key, ctrl, alt, shift);
@@ -72,6 +95,13 @@ fn handle(window: HWND, request: Request, reply: Reply) {
             }
             None => reply.complete(Response::err(format!("unknown keys: {keys}"))),
         },
+        // "@popup " first: run in an extension's popup, not the page in front.
+        Request::Eval { js } if js.starts_with("@popup ") => crate::extensions::eval_popup(&js["@popup ".len()..], move |result| {
+            reply.complete(match result {
+                Ok(text) => Response::ok(serde_json::from_str(&text).unwrap_or(Value::String(text))),
+                Err(error) => Response::err(error),
+            })
+        }),
         Request::Eval { js } => crate::page::eval(&js, move |result| {
             reply.complete(match result {
                 Ok(text) => Response::ok(serde_json::from_str(&text).unwrap_or(Value::String(text))),

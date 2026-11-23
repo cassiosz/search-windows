@@ -11,6 +11,7 @@ mod address;
 mod bookmarks;
 mod downloads;
 mod engine;
+mod extensions;
 mod favicon;
 mod float;
 mod forms;
@@ -89,6 +90,8 @@ const DROP_PAD: i32 = 6;
 const BACK_GLYPH: &str = "\u{E72B}";
 const FORWARD_GLYPH: &str = "\u{E72A}";
 const RELOAD_GLYPH: &str = "\u{E72C}";
+/// A puzzle piece, as Edge draws its extensions.
+const EXTENSIONS_GLYPH: &str = "\u{EA86}";
 const ADD_GLYPH: &str = "\u{E710}";
 const MINIMIZE_GLYPH: &str = "\u{E921}";
 const MAXIMIZE_GLYPH: &str = "\u{E922}";
@@ -211,6 +214,8 @@ enum Item {
     Back,
     Forward,
     Reload,
+    /// Extensions' popups, only with one to open.
+    Extensions,
     /// Where you are: a click turns it into the field.
     Crumb,
     Minimize,
@@ -642,12 +647,20 @@ struct Bar {
     reload: RECT,
     /// The field's box; the page's place is written where the field's text would start.
     field: RECT,
+    /// Extensions' button, left of the window's own when there is one.
+    extensions: Option<RECT>,
     minimize: RECT,
     maximize: RECT,
     close: RECT,
 }
 
-fn bar_spots(client: RECT, dpi: i32) -> Bar {
+/// Whether the bar shows extensions' button, from inside a state borrow.
+fn ext_button(s: &State) -> bool {
+    extensions::button(s.private.contains_key(&s.tabs.selected_id()))
+}
+
+/// `ext`: with extensions' button (ext_button): never asked here, where the state may be borrowed.
+fn bar_spots(client: RECT, dpi: i32, ext: bool) -> Bar {
     let height = scale(BAR, dpi);
     let nav = scale(NAV, dpi);
     let top = (height - nav) / 2;
@@ -659,11 +672,13 @@ fn bar_spots(client: RECT, dpi: i32) -> Bar {
     let close = RECT { left: client.right - caption, top: 0, right: client.right, bottom: height };
     let maximize = RECT { left: close.left - caption, right: close.left, ..close };
     let minimize = RECT { left: maximize.left - caption, right: maximize.left, ..close };
+    let extensions = ext.then(|| button(minimize.left - scale(GAP, dpi) - nav));
     let field_top = (height - scale(FIELD_H, dpi)) / 2;
     let left = reload.right + scale(GAP, dpi);
-    let right = (minimize.left - scale(2 * GAP, dpi)).min(left + scale(FIELD_MOST, dpi)).max(left);
+    let end = extensions.map_or(minimize.left, |r| r.left);
+    let right = (end - scale(2 * GAP, dpi)).min(left + scale(FIELD_MOST, dpi)).max(left);
     let field = RECT { left, top: field_top, right, bottom: field_top + scale(FIELD_H, dpi) };
-    Bar { back, forward, reload, field, minimize, maximize, close }
+    Bar { back, forward, reload, field, extensions, minimize, maximize, close }
 }
 
 fn bar_rect(client: RECT, dpi: i32) -> RECT {
@@ -695,11 +710,11 @@ fn client_rect() -> RECT {
 }
 
 fn layout() {
-    let Some((window, field, dpi)) = state(|s| (s.window, s.field, s.dpi)) else { return };
+    let Some((window, field, dpi, ext)) = state(|s| (s.window, s.field, s.dpi, ext_button(s))) else { return };
     let mut client = RECT::default();
     unsafe {
         let _ = GetClientRect(window, &mut client);
-        let frame = bar_spots(client, dpi).field;
+        let frame = bar_spots(client, dpi, ext).field;
         let line = scale(LINE, dpi);
         let pad = scale(FIELD_PAD, dpi);
         let _ = MoveWindow(
@@ -992,11 +1007,12 @@ fn bar_hit(s: &State, client: RECT, x: i32, y: i32) -> Option<Item> {
     if y >= scale(BAR, dpi) || x < scale(COLUMN, dpi) {
         return None;
     }
-    let bar = bar_spots(client, dpi);
+    let bar = bar_spots(client, dpi, ext_button(s));
     let spots = [
         (bar.back, Item::Back),
         (bar.forward, Item::Forward),
         (bar.reload, Item::Reload),
+        (bar.extensions.unwrap_or_default(), Item::Extensions),
         (bar.minimize, Item::Minimize),
         (bar.maximize, Item::Maximize),
         (bar.close, Item::Close),
@@ -1135,6 +1151,8 @@ struct Picture {
     focused_pane: Option<RECT>,
     /// The page in front is out in the floating window: the card says so.
     floated: bool,
+    /// The bar has extensions' button.
+    extensions: bool,
 }
 
 /// Draws off screen and copies in at once: hovering never flickers.
@@ -1276,7 +1294,7 @@ unsafe fn paint_column(canvas: HDC, area: RECT, p: &Picture) {
 unsafe fn paint_bar(canvas: HDC, area: RECT, client: RECT, p: &Picture) -> i32 {
     let dpi = p.dpi;
     let palette = p.palette;
-    let bar = bar_spots(client, dpi);
+    let bar = bar_spots(client, dpi, p.extensions);
     let mut crumb_right = 0;
     unsafe {
         fill(canvas, area, palette.card);
@@ -1288,7 +1306,11 @@ unsafe fn paint_bar(canvas: HDC, area: RECT, client: RECT, p: &Picture) -> i32 {
             (bar.back, Item::Back, BACK_GLYPH, p.can_back),
             (bar.forward, Item::Forward, FORWARD_GLYPH, p.can_forward),
             (bar.reload, Item::Reload, RELOAD_GLYPH, true),
+            (bar.extensions.unwrap_or_default(), Item::Extensions, EXTENSIONS_GLYPH, bar.extensions.is_some()),
         ] {
+            if item == Item::Extensions && !enabled {
+                continue;
+            }
             if enabled && p.hover == Some(item) {
                 rounded(canvas, rect, palette.bar_hover, palette.bar_hover, radius);
             }
@@ -1377,6 +1399,7 @@ fn paint(window: HWND) {
             dividers,
             focused_pane,
             floated: floating.is_some() && floating == Some(s.tabs.selected_id()),
+            extensions: ext_button(s),
             column: column(s, client.bottom),
             palette: s.palette,
             font: s.font,
@@ -1456,6 +1479,19 @@ fn repaint_column() {
             let _ = InvalidateRect(Some(window), Some(&area), false);
         }
     }
+}
+
+/// Extensions' button on screen, where its popup hangs from.
+fn extensions_button() -> Option<RECT> {
+    let client = client_rect();
+    let (window, dpi, ext) = state(|s| (s.window, s.dpi, ext_button(s)))?;
+    let spot = bar_spots(client, dpi, ext).extensions?;
+    let (mut corner, mut far) = (POINT { x: spot.left, y: spot.top }, POINT { x: spot.right, y: spot.bottom });
+    unsafe {
+        let _ = ClientToScreen(window, &mut corner);
+        let _ = ClientToScreen(window, &mut far);
+    }
+    Some(RECT { left: corner.x, top: corner.y, right: far.x, bottom: far.y })
 }
 
 fn repaint_bar() {
@@ -1582,6 +1618,11 @@ fn clicked(window: HWND, x: i32, y: i32) {
         Some((Item::Back, _)) => page::back(),
         Some((Item::Forward, _)) => page::forward(),
         Some((Item::Reload, _)) => page::reload(),
+        Some((Item::Extensions, _)) => {
+            if let Some(anchor) = extensions_button() {
+                extensions::clicked(anchor);
+            }
+        }
         Some((Item::Crumb, _)) => focus_field(),
         Some((item @ (Item::Minimize | Item::Close), _)) => {
             state(|s| s.pressed = Some(item));
@@ -2109,13 +2150,13 @@ extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM, lpara
 /// hidden when there is nothing to offer.
 fn place_drop() {
     let client = client_rect();
-    let Some((window, drop, dpi, count)) = state(|s| (s.window, s.drop, s.dpi, s.suggestions.len())) else { return };
+    let Some((window, drop, dpi, count, ext)) = state(|s| (s.window, s.drop, s.dpi, s.suggestions.len(), ext_button(s))) else { return };
     unsafe {
         if count == 0 || IsIconic(window).as_bool() {
             let _ = ShowWindow(drop, SW_HIDE);
             return;
         }
-        let field = bar_spots(client, dpi).field;
+        let field = bar_spots(client, dpi, ext).field;
         let mut corner = POINT { x: field.left, y: scale(BAR, dpi) + scale(2, dpi) };
         let _ = ClientToScreen(window, &mut corner);
         let height = count as i32 * scale(SUGGESTION_ROW, dpi) + 2 * scale(DROP_PAD, dpi);
@@ -3187,6 +3228,7 @@ pub fn bench_state() -> serde_json::Value {
     value["downloading"] = serde_json::json!(downloads::active());
     value["float"] = float::bench();
     value["peek"] = peek::bench();
+    value["extensions"] = extensions::bench();
     value["forms"] = forms::bench();
     value["passwords"] = passwords::bench();
     value["import"] = import::bench();
@@ -3277,6 +3319,9 @@ fn show_address() {
 
 /// What a tab's page reports. News from a tab already closed is dropped.
 pub fn page_event(id: page::TabId, event: page::Event) {
+    if extensions::page_event(id, &event) {
+        return;
+    }
     let Some((front, known)) = state(|s| (s.tabs.selected_id() == id, s.tabs.get(id).is_some())) else { return };
     if !known {
         return;

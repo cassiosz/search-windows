@@ -186,6 +186,7 @@ dependencies = [
  "searchwin-bookmarks",
  "searchwin-curtain",
  "searchwin-downloads",
+ "searchwin-extensions",
  "searchwin-history",
  "searchwin-import",
  "searchwin-prefs",
@@ -235,6 +236,13 @@ dependencies = [
  "serde",
  "serde_json",
  "url",
+]
+
+[[package]]
+name = "searchwin-extensions"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
