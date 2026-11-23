@@ -630,3 +630,23 @@ fn ids_are_unique() {
     let ids: std::collections::HashSet<String> = (0..1000).map(|_| s.new_id()).collect();
     assert_eq!(ids.len(), 1000);
 }
+
+#[test]
+fn adopt_takes_a_synced_list_and_never_the_home() {
+    let mut s = Spaces::default();
+    s.set_uses_spaces(true);
+    let work = s.add_space("Work", None, false);
+    let mut arriving = Space::first();
+    arriving.id = "ABCD-1".into();
+    arriving.name = "Travel".into();
+    // Work is gone elsewhere, Travel arrived, the first space was put last.
+    let removals = s.adopt(PERSONAL_ID, vec![arriving, Space::first()]);
+    let ids: Vec<&str> = s.all().iter().map(|x| x.id.as_str()).collect();
+    assert_eq!(ids, ["ABCD-1", FIRST_SPACE_ID]);
+    assert_eq!(removals.len(), 1);
+    assert_eq!(removals[0].spaces, [work]);
+    // A list without the home keeps it.
+    s.adopt(PERSONAL_ID, Vec::new());
+    assert_eq!(s.all().len(), 1);
+    assert!(s.all()[0].is_first());
+}

@@ -31,7 +31,8 @@ pub struct Entry {
     /// The group an ordinary tab is in, by its id in `groups`.
     #[serde(rename = "groupID", default, skip_serializing_if = "Option::is_none")]
     pub group_id: Option<String>,
-    /// A pin's identity, the same in every window upstream (Pins.swift).
+    /// A pin's identity, the same in every window upstream (Pins.swift);
+    /// sync matches pins by it too.
     #[serde(rename = "pinID", default, skip_serializing_if = "Option::is_none")]
     pub pin_id: Option<String>,
     /// When you last left the tab, unix milliseconds. Upstream writes a
@@ -88,7 +89,7 @@ impl Shape {
                 name: t.name.clone(),
                 home: t.home.clone(),
                 group_id: t.group_id.clone(),
-                pin_id: t.pin_id.clone(),
+                pin_id: t.pin_id.clone().filter(|_| t.pinned),
                 touched: Some(t.last_active_ms),
                 muted: t.muted,
             })

@@ -62,6 +62,22 @@ pub fn change(key: &str, value: Value) -> Result<(), String> {
     })
 }
 
+/// A setting changed, from Settings or from another PC, and what it changes
+/// at once.
+pub fn set_pref(key: &str, value: Value) -> Result<(), String> {
+    change(key, value)?;
+    // Split View takes effect at once: the splits there are come out, or go.
+    if key == "split_view" {
+        crate::split::turned(prefs(|p| p.split_view));
+    }
+    // Peek's listener goes into every page's next document, or out of it.
+    if key == "peek" || key == "peek_with" {
+        crate::page::refresh_peek();
+    }
+    crate::sync::poke();
+    Ok(())
+}
+
 pub fn is_internal(url: &str) -> bool {
     url.get(..INTERNAL_SCHEME.len()).is_some_and(|scheme| scheme.eq_ignore_ascii_case(INTERNAL_SCHEME))
         && url[INTERNAL_SCHEME.len()..].starts_with(':')
@@ -114,18 +130,12 @@ pub fn message(tab: crate::page::TabId, source: &str, json: &str) -> Option<Stri
         "settings.get" => settings(None),
         "settings.set" => {
             let value = asked.get("value").cloned().unwrap_or(Value::Null);
-            let key = text("key");
-            let error = change(&key, value).err();
-            // Split View takes effect at once: the splits there are come out, or go.
-            if key == "split_view" && error.is_none() {
-                crate::split::turned(prefs(|p| p.split_view));
-            }
-            // Peek's listener goes into every page's next document, or out of it.
-            if (key == "peek" || key == "peek_with") && error.is_none() {
-                crate::page::refresh_peek();
-            }
-            settings(error)
+            settings(set_pref(&text("key"), value).err())
         }
+        op if op.starts_with("sync.") => match from.as_str() {
+            "settings" => crate::sync::message(op),
+            _ => return None,
+        },
         op if op.starts_with("spaces.") || op.starts_with("profiles.") => crate::spaces::message(op, &asked),
         "history.list" => {
             let mut entries = crate::history_list(&text("query"));
@@ -216,6 +226,9 @@ mod tests {
             "spaces.delete",
             "profiles.delete",
             "settings.set",
+            "sync.on",
+            "sync.off",
+            "sync.now",
         ] {
             let asked = json!({ "op": op, "id": 1, "row": 1, "node": "x", "from": "chrome", "host": "a.com", "user": "u" }).to_string();
             assert_eq!(message(1, "https://example.com/", &asked), None);
@@ -231,6 +244,7 @@ mod tests {
             assert_eq!(message(1, "search://history", &asked), None, "{op}");
         }
         assert_eq!(message(1, "search://passwords", r#"{"op":"import.run","id":1}"#), None);
+        assert_eq!(message(1, "search://history", r#"{"op":"sync.off","id":1}"#), None);
         assert!(page("search://passwords").is_some() && page("search://import").is_some());
     }
 }

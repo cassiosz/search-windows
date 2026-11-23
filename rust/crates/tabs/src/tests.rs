@@ -919,3 +919,60 @@ fn restored_ids_start_at_one() {
     let row = shape.into_tabs(1);
     assert_eq!(row.selected_id(), 1);
 }
+
+#[test]
+fn pins_get_lasting_ids_and_keep_them_through_a_session() {
+    let (mut t, ids) = row(3);
+    t.pin(ids[1]);
+    let mut n = 0;
+    let mut next = || {
+        n += 1;
+        format!("P{n}")
+    };
+    let (defs, given) = t.pin_defs(&|_| false, &mut next);
+    assert!(given);
+    assert_eq!(defs.len(), 1);
+    assert_eq!(defs[0].id, "P1");
+    let (again, given) = t.pin_defs(&|_| false, &mut || unreachable!());
+    assert!(!given);
+    assert_eq!(again, defs);
+    let back = Shape::from_tabs(&t).into_tabs(0);
+    assert_eq!(back.iter().find(|x| x.pinned).and_then(|x| x.pin_id.clone()).as_deref(), Some("P1"));
+}
+
+#[test]
+fn adopting_pins_adds_updates_orders_and_only_unpins() {
+    let (mut t, ids) = row(3);
+    t.pin(ids[0]);
+    t.pin(ids[1]);
+    let mut n = 0;
+    let (defs, _) = t.pin_defs(&|_| false, &mut || {
+        n += 1;
+        format!("P{n}")
+    });
+    // Another PC: P2 renamed and moved first, P1 gone, P3 new.
+    let mut p2 = defs[1].clone();
+    p2.name = Some("Mail".into());
+    let p3 = PinDef { id: "P3".into(), letter: "N".into(), home: "https://new.test/".into(), title: "New".into(), name: None };
+    let len = t.len();
+    assert!(t.adopt_pins(&[p2, p3], &|_| false));
+    let pins: Vec<&Tab> = t.iter().filter(|x| x.pinned).collect();
+    assert_eq!(pins.iter().map(|x| x.pin_id.as_deref().unwrap()).collect::<Vec<_>>(), ["P2", "P3"]);
+    assert_eq!(pins[0].name.as_deref(), Some("Mail"));
+    assert!(pins[1].asleep && pins[1].url.as_deref() == Some("https://new.test/"));
+    // P1's tab is still open, unpinned: one tab more, none closed.
+    assert_eq!(t.len(), len + 1);
+    assert!(t.get(ids[0]).is_some_and(|x| !x.pinned && x.pin_id.is_none()));
+    // The same again changes nothing.
+    let (now, _) = t.pin_defs(&|_| false, &mut || unreachable!());
+    assert!(!t.adopt_pins(&now, &|_| false));
+}
+
+#[test]
+fn adopting_pins_leaves_skipped_tabs_alone() {
+    let (mut t, ids) = row(2);
+    t.pin(ids[0]);
+    let private = |id: u64| id == ids[0];
+    assert!(!t.adopt_pins(&[], &private));
+    assert!(t.get(ids[0]).is_some_and(|x| x.pinned));
+}

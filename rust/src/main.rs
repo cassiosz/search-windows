@@ -25,6 +25,7 @@ mod peek;
 mod shield;
 mod spaces;
 mod split;
+mod sync;
 mod veil;
 
 use std::cell::RefCell;
@@ -519,6 +520,8 @@ fn main() -> windows_core::Result<()> {
             (None, None) => show_selected(),
         }
         SetTimer(Some(window), SLEEP_TIMER, SLEEP_CHECK_MS, None);
+        // After the first page is asked for: off, this is one file not found.
+        sync::start();
 
         let mut message = MSG::default();
         while GetMessageW(&mut message, None, 0, 0).as_bool() {
@@ -2059,6 +2062,8 @@ extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM, lpara
             WM_ACTIVATEAPP => {
                 if wparam.0 == 0 {
                     float::app_left();
+                } else {
+                    sync::came_back();
                 }
                 DefWindowProcW(window, message, wparam, lparam)
             }
@@ -2262,6 +2267,10 @@ extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM, lpara
             }
             WM_TIMER if wparam.0 == downloads::PUSH_TIMER => {
                 downloads::push();
+                LRESULT(0)
+            }
+            WM_TIMER if wparam.0 == sync::EVERY_TIMER || wparam.0 == sync::SOON_TIMER => {
+                sync::tick(wparam.0);
                 LRESULT(0)
             }
             WM_TIMER if wparam.0 == SLEEP_TIMER => {
@@ -3392,6 +3401,7 @@ pub fn bench_state() -> serde_json::Value {
     value["forms"] = forms::bench();
     value["passwords"] = passwords::bench();
     value["import"] = import::bench();
+    value["sync"] = sync::bench();
     // Spaces and profiles as the window has them, and the split in front as laid out.
     let client = client_rect();
     if let Some((spaces, split)) = state(|s| {

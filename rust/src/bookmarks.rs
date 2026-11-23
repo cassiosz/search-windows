@@ -50,6 +50,14 @@ fn with<R>(f: impl FnOnce(&mut Bookmarks) -> R) -> R {
 fn changed() {
     OWED.with(|o| o.set(true));
     crate::save_soon();
+    crate::sync::poke();
+}
+
+/// Another PC changed the file: read again the next time they are wanted,
+/// and the page, if open, looks again.
+pub fn reload() {
+    BOOKMARKS.with(|cell| *cell.borrow_mut() = None);
+    crate::page::post_to_internal("bookmarks", &json!({ "event": "changed" }).to_string());
 }
 
 /// Called from the window's save: the file, if anything changed.
